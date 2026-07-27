@@ -1,0 +1,33 @@
+# --- python -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- CONCLAVE runtime workspaces --------------------------------------
+# A .conclave/ directory is operator state, not source. It holds task
+# packets, provider responses and the ledger for a specific operator and
+# must never be committed into the tool's own repository.
+.conclave/
+
+# --- secrets -----------------------------------------------------------
+.env
+*.key
+*.pem
+
+# --- os / editor -------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# --- stray artifact ----------------------------------------------------
+# Created in error while probing git capability from a sandbox that cannot
+# unlink files. Excluded here; delete it manually.
+testrepo/

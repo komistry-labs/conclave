@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "conclave"
+version = "0.1.0"
+description = "Multi-provider AI coordination and governance CLI for Komistry OS"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+conclave = "conclave.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/conclave"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
