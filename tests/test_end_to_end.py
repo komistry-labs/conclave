@@ -9,6 +9,7 @@ import json
 
 import pytest
 import yaml
+from pathcheck import foreign_paths
 from typer.testing import CliRunner
 
 from conclave.cli import app
@@ -187,13 +188,18 @@ def test_full_bootstrap_workflow(workspace):
     # scope grant, and the snapshot's own exclusion note names KOS by design.
     # What matters is that no KOS *content* was read and no path outside the
     # workspace was recorded or created.
+    #
+    # Containment is checked on the structured event, not on serialised JSON.
+    # See tests/pathcheck.py for why searching json.dumps() output cannot work.
     assert config["kos_repository"] is None
     for e in events:
         for value in (e.get("artifact_hashes") or {}).values():
             assert value.startswith("sha256:")
-        for path_value in [v for v in json.dumps(e).split('"')
-                           if v.startswith("/") or ":\\" in v]:
-            assert str(ws) in path_value or path_value.startswith("/sessions"), path_value
+        strays = foreign_paths(e, ws)
+        assert strays == [], (
+            f"event {e['event_type']} (seq {e['sequence']}) records path(s) "
+            f"outside the workspace: {strays}"
+        )
     snapshot = next(e for e in events if e["event_type"] == "workspace_snapshot_attested")
     assert "the KOS repository" in snapshot["payload"]["excludes"][0]
     # every attested artifact lives inside the workspace
