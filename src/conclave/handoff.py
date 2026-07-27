@@ -159,6 +159,21 @@ class ImportResult:
 
 # -- extraction ------------------------------------------------------------
 
+def normalise_line_endings(text: str) -> str:
+    """Convert CRLF and lone CR to LF for parsing purposes only.
+
+    A provider's reply is saved by whatever editor the operator uses. On
+    Windows that is almost always CRLF. Line endings carry no meaning in a
+    fenced block or in YAML, so parsing must not depend on them.
+
+    This does NOT weaken any preservation guarantee. It runs on an in-memory
+    string, after the raw bytes have been stored verbatim and after strict
+    UTF-8 decoding. The evidentiary artifact keeps its original bytes and its
+    binary hash; only the working copy used for extraction is normalised.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def extract_yaml_block(text: str) -> tuple[str | None, list[Defect]]:
     """Return the single candidate fenced block, or defects explaining why not.
 
@@ -170,7 +185,16 @@ def extract_yaml_block(text: str) -> tuple[str | None, list[Defect]]:
     Zero candidates is a rejection. More than one is a rejection for
     ambiguity - CONCLAVE does not decide which of a provider's blocks was
     meant to be authoritative.
+
+    Input is normalised to LF first. The closing-fence pattern anchors with
+    `$` under re.MULTILINE, which matches immediately before a newline; in a
+    CRLF file a carriage return sits in that position and the fence is never
+    found. Normalising is preferred over making the pattern CR-tolerant
+    because it also keeps carriage returns out of the extracted block, so a
+    Windows-authored reply and a Linux-authored one produce byte-identical
+    Handoff Packets.
     """
+    text = normalise_line_endings(text)
     blocks = [(m.group(1).strip().lower(), m.group(2)) for m in _FENCE.finditer(text)]
     tagged = [body for tag, body in blocks if tag in YAML_TAGS]
     untagged = [body for tag, body in blocks if tag == ""]
