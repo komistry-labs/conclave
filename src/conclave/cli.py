@@ -15,6 +15,7 @@ import yaml
 from . import __version__, ledger
 from .council import review_task
 from .context import ContextSource, build_context_bundle, write_context_bundle
+from .contextrelay import write_context_relay_export
 from .errors import ConclaveError
 from .execution import execute_stage, read_run_record, write_run_record
 from .handoff import import_response
@@ -894,6 +895,81 @@ def relay_export(
 
     if refused:
         raise typer.Exit(code=1)
+
+
+@relay_app.command("export-context")
+def relay_export_context(
+    context_file: Path = typer.Option(..., "--context",
+                                      help="Sealed Context Bundle YAML."),
+    route_file: Path = typer.Option(..., "--route",
+                                    help="Sealed Route Plan YAML."),
+    instruction_file: Path = typer.Option(..., "--instruction",
+                                          help="Provider instruction text."),
+    stage_index: int = typer.Option(0, "--stage-index", min=0),
+) -> None:
+    """CREATE one sealed, stage-bound prompt for governed manual relay.
+
+    The full Context Bundle is projected into the prompt locally. This command
+    makes no provider API call and never includes another provider's response.
+    """
+    from .context import read_context_bundle
+    from .routing import read_route_plan
+
+    ws, config = _ws()
+    try:
+        bundle = read_context_bundle(context_file)
+        plan = read_route_plan(route_file)
+        task_id, version_text = bundle.packet_ref.rsplit("@v", 1)
+        packet = read_packet(ws, task_id, int(version_text))
+        instruction = instruction_file.read_text(encoding="utf-8")
+        record, prompt_path, manifest_path, created = write_context_relay_export(
+            ws=ws,
+            packet=packet,
+            bundle=bundle,
+            plan=plan,
+            stage_index=stage_index,
+            instruction=instruction,
+            config=config,
+        )
+    except (ConclaveError, OSError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+
+    status = "created" if created else "unchanged"
+    typer.secho(f"{status}: {prompt_path}", fg=typer.colors.GREEN)
+    typer.echo(f"manifest: {manifest_path}")
+    typer.echo(f"packet:   {record.packet_ref}  {record.packet_content_hash}")
+    typer.echo(f"context:  {record.context_bundle_hash}")
+    typer.echo(f"route:    {record.route_plan_hash}")
+    typer.echo(
+        f"stage:    {record.stage_index}  {record.provider}:{record.role}"
+    )
+    typer.echo(f"prompt:   {record.prompt_hash}")
+    typer.echo("No provider API call was made.")
+
+    if created:
+        _record(
+            ws,
+            event_type="context_relay_prompt_exported",
+            actor="conclave",
+            authority_level="system",
+            subject_refs=[record.packet_ref],
+            artifact_hashes={
+                "task_packet": record.packet_content_hash,
+                "context_bundle": record.context_bundle_hash,
+                "route_plan": record.route_plan_hash,
+                "prompt": record.prompt_hash,
+                "context_relay_manifest": record.content_hash,
+            },
+            payload={
+                "provider": record.provider,
+                "role": record.role,
+                "stage_index": record.stage_index,
+                "prompt_file": prompt_path.relative_to(ws.root).as_posix(),
+                "source_artifact": manifest_path.relative_to(ws.root).as_posix(),
+                "transport": "manual-relay",
+            },
+        )
 
 
 @relay_app.command("import")

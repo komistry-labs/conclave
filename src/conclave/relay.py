@@ -130,6 +130,9 @@ recommended_next_action: revise   # revise | accept | escalate | abstain
 ```"""
 
 ROLE_OUTPUT_TYPE = {
+    "lead": "draft",
+    "critic": "critique",
+    "verifier": "verification",
     "institutional_architect": "draft",
     "governance_critic": "critique",
     "external_verifier": "verification",
@@ -310,13 +313,17 @@ def append_export_record(ws: Workspace, record: dict[str, Any]) -> None:
 
 def read_export_records(ws: Workspace) -> list[dict[str, Any]]:
     path = ws.outbox_dir / "exports.jsonl"
-    if not path.exists():
-        return []
-    return [
+    records = [
         json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in (path.read_text(encoding="utf-8").splitlines() if path.exists() else [])
         if line.strip()
     ]
+    # Imported lazily to avoid a module cycle: contextrelay reuses the frozen
+    # Task Packet prompt renderer above. Its sealed manifests are authoritative
+    # export records and do not need a second mutable JSONL representation.
+    from .contextrelay import read_context_relay_records
+
+    return records + read_context_relay_records(ws)
 
 
 def export_prompts(

@@ -21,7 +21,7 @@ from .errors import WorkspaceError
 
 WORKSPACE_DIRNAME = ".conclave"
 CONFIG_FILENAME = "config.yaml"
-BOOTSTRAP_VERSION = "0.2.0"
+BOOTSTRAP_VERSION = "0.3.0"
 
 SUBDIRS = (
     "tasks",

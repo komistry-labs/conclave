@@ -1,4 +1,4 @@
-# CONCLAVE v0.2.0
+# CONCLAVE v0.3.0
 
 A local command-line tool for coordinating several AI providers on Komistry OS
 work through manual relay or explicitly authorized live adapters, with an
@@ -27,9 +27,9 @@ CONCLAVE deliberately does **not**:
 - interpret provider prose, semantically or with embeddings
 - approve, ratify, commission or merge anything
 
-**Komistry OS is external and read-only.** CONCLAVE never writes to it. In
-Bootstrap 0.1 it does not read it either; a KOS path may be recorded in config
-for later use, and nothing more.
+**Komistry OS is external and read-only.** CONCLAVE never writes to it. A KOS
+path may be recorded in config, but the governed workflows use explicit,
+operator-supplied source manifests rather than silently traversing KOS.
 
 ---
 
@@ -65,6 +65,8 @@ conclave --help
 ├── relay/
 │   ├── outbox/
 │   │   ├── <task>__v1__<provider>__<hash12>.md    prompt to paste
+│   │   ├── context/<task>__v1__s0__<provider>__*.md
+│   │   ├── context/<task>__v1__s0__<provider>__*.yaml
 │   │   └── exports.jsonl                          export/replacement events
 │   └── inbox/
 │       ├── raw/<hash12>.raw.md    exact bytes received, never altered
@@ -130,6 +132,24 @@ agreement that means nothing.
 
 If a reply is rejected, send the generated repair request back to the *same*
 provider and import the corrected reply. The rejected bytes are kept.
+
+For governed work that needs a sealed Context Bundle and Route Plan, export
+one route stage instead:
+
+```powershell
+conclave relay export-context `
+  --context .conclave/context/<bundle>.yaml `
+  --route .conclave/routes/<route>.yaml `
+  --instruction instruction.md `
+  --stage-index 0
+```
+
+This command verifies the Task Packet, Context Bundle, Route Plan, and stage
+binding; projects the complete sealed context into one provider prompt; and
+writes a content-addressed prompt plus sealed manifest under
+`relay/outbox/context/`. It makes no provider API call. The manifest lets
+Handoff import and ledger reconciliation prove exactly which context, route,
+stage, provider, and role the response answers.
 
 ---
 
@@ -227,6 +247,7 @@ Every canonical artifact is written once and never edited.
 | Handoff Packet | sealed at import; refuses to write with a stale hash |
 | Scope Review | one attestation per (handoff, schema); re-running verifies, never recomputes |
 | Council Review | id derived from its source set; a changed set is a new review |
+| Context relay export | stage-bound prompt plus sealed content-addressed manifest |
 | Ledger | append-only, hash-chained, never rewritten or truncated |
 
 All content hashes are computed on **canonical bytes** — UTF-8, no BOM, LF,
@@ -319,7 +340,7 @@ and asserts nothing about when they were created or in what order. **No
 historical events are fabricated.**
 
 `ledger reconcile` reconstructs only what immutable artifact metadata
-establishes, for nine operational event types. Where an artifact records its
+establishes, for its supported operational event types. Where an artifact records its
 own timestamp that becomes `occurred_at`; where none exists, reconciliation
 time is used and the payload says the original time is unknown. Ambiguous
 cases are reported as unresolved rather than guessed. It never infers human
@@ -338,7 +359,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 517 tests
+python -m pytest                  # 689 tests
 ```
 
 `validate` separates its findings by category because they have different
@@ -347,11 +368,10 @@ is an authority-boundary breach and is not for an agent to resolve.**
 
 ---
 
-## Bootstrap 0.1 limitations
+## Current limitations
 
 Known and deliberate:
 
-- No provider API calls. Manual relay only.
 - No GitHub or pull-request automation.
 - No human decision recording — the decision block exists and stays pending.
   This is the next reviewed increment; it changes the authority model and was
@@ -377,10 +397,13 @@ src/conclave/
 ├── taskpacket.py   identity, sealing, write-once storage
 ├── validation.py   schema / semantic / governance
 ├── relay.py        prompt projection and export provenance
+├── contextrelay.py sealed Context Bundle manual-relay projection
 ├── handoff.py      raw preservation, extraction, provenance, sealing
 ├── scope.py        containment rules and Scope Review
 ├── council.py      aggregation, structural comparison, YAML + Markdown
 ├── ledger.py       hash-chained event ledger
 ├── reconcile.py    deterministic gap closure
+├── routing.py      provider roles, route stages, and token ceilings
+├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
 └── cli.py          command surface
 ```

@@ -70,6 +70,7 @@ EVENT_TYPES = (
     "context_bundle_created",
     "route_plan_created",
     "provider_run_captured",
+    "context_relay_prompt_exported",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so

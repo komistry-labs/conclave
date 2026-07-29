@@ -318,7 +318,8 @@ def verify_provenance(
     records = [
         r for r in read_export_records(ws)
         if r.get("event_type", "prompt_exported") in ("prompt_exported",
-                                                      "prompt_export_replaced")
+                                                      "prompt_export_replaced",
+                                                      "context_prompt_exported")
     ]
 
     matching = [r for r in records if r.get("packet_ref") == ref and r.get("provider") == provider]

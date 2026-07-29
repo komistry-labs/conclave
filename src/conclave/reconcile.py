@@ -37,6 +37,7 @@ import yaml
 
 from .council import CouncilReview, verify_council_content_hash
 from .context import read_context_bundle
+from .contextrelay import context_relay_dir, read_context_relay_export
 from .errors import LedgerError
 from .execution import read_run_record
 from .handoff import HandoffPacket, verify_handoff_content_hash
@@ -63,6 +64,7 @@ SUPPORTED_EVENTS = (
     "context_bundle_created",
     "route_plan_created",
     "provider_run_captured",
+    "context_relay_prompt_exported",
 )
 
 
@@ -191,6 +193,47 @@ def _route_plans(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
             payload={"source_artifact": path.relative_to(ws.root).as_posix()},
             occurred_at=None,
             identifying_hash=plan.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
+def _context_relay_exports(
+    ws: Workspace,
+) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    base = context_relay_dir(ws)
+    if not base.exists():
+        return candidates, unresolved
+    for path in sorted(base.glob("*.yaml")):
+        try:
+            record = read_context_relay_export(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable context relay export: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="context_relay_prompt_exported",
+            actor="conclave",
+            authority_level="system",
+            subject_refs=[record.packet_ref],
+            artifact_hashes={
+                "task_packet": record.packet_content_hash,
+                "context_bundle": record.context_bundle_hash,
+                "route_plan": record.route_plan_hash,
+                "prompt": record.prompt_hash,
+                "context_relay_manifest": record.content_hash,
+            },
+            payload={
+                "provider": record.provider,
+                "role": record.role,
+                "stage_index": record.stage_index,
+                "prompt_file": record.prompt_file,
+                "transport": "manual-relay",
+            },
+            occurred_at=record.exported_at,
+            identifying_hash=record.content_hash,
             source=path.relative_to(ws.root).as_posix(),
         ))
     return candidates, unresolved
@@ -459,6 +502,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _task_packets,
         _context_bundles,
         _route_plans,
+        _context_relay_exports,
         _provider_runs,
         _relay_exports,
         _handoffs,

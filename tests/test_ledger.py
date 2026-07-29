@@ -67,7 +67,7 @@ def test_genesis_created(ws, config):
 def test_genesis_payload_identifies_workspace(ws, config):
     p = initialise(ws, config)[0]["payload"]
     assert p["principal"] == "Arthur"
-    assert p["bootstrap_version"] == "0.2.0"
+    assert p["bootstrap_version"] == "0.3.0"
     assert p["authority_policy"]["agents_may_merge"] is False
     assert p["hashing_algorithm"] == "sha256"
     assert p["canonicalisation"] == "kos-canonical-text-v1"
