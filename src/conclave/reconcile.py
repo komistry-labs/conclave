@@ -4,7 +4,7 @@ Closes the gap left when an artifact was written but its ledger event was not
 appended — because the ledger was damaged, locked, or not yet initialised.
 
 This is NOT a generic append interface. It reconstructs only the events that
-can be established from immutable artifact metadata, and only for the nine
+can be established from immutable artifact metadata, and only for the
 supported operational event types. It cannot and does not infer human
 decisions or action authorisations.
 
@@ -36,11 +36,14 @@ from typing import Any
 import yaml
 
 from .council import CouncilReview, verify_council_content_hash
+from .context import read_context_bundle
 from .errors import LedgerError
+from .execution import read_run_record
 from .handoff import HandoffPacket, verify_handoff_content_hash
 from .hashing import hash_file
 from .ledger import append_event, exists, read_events, verify
 from .models import TaskPacket
+from .routing import read_route_plan
 from .scope import ScopeReview, verify_review_content_hash
 from .taskpacket import list_tasks, list_versions, packet_path, read_packet, verify_content_hash
 from .workspace import Workspace, utcnow
@@ -57,6 +60,9 @@ SUPPORTED_EVENTS = (
     "provider_response_rejected",
     "scope_review_created",
     "council_review_created",
+    "context_bundle_created",
+    "route_plan_created",
+    "provider_run_captured",
 )
 
 
@@ -141,6 +147,82 @@ def _task_packets(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
                 identifying_hash=packet.content_hash or "",
                 source=path.name,
             ))
+    return candidates, unresolved
+
+
+def _context_bundles(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.context_dir.glob("*.yaml")):
+        try:
+            bundle = read_context_bundle(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable context bundle: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="context_bundle_created",
+            actor="conclave", authority_level="system",
+            subject_refs=[bundle.packet_ref],
+            artifact_hashes={"context_bundle": bundle.content_hash},
+            payload={"source_artifact": path.relative_to(ws.root).as_posix()},
+            occurred_at=None,
+            identifying_hash=bundle.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
+def _route_plans(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.routes_dir.glob("*.yaml")):
+        try:
+            plan = read_route_plan(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable route plan: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="route_plan_created",
+            actor="conclave", authority_level="system",
+            subject_refs=[plan.packet_ref],
+            artifact_hashes={"route_plan": plan.content_hash},
+            payload={"source_artifact": path.relative_to(ws.root).as_posix()},
+            occurred_at=None,
+            identifying_hash=plan.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
+def _provider_runs(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.runs_dir.glob("*.yaml")):
+        try:
+            record = read_run_record(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable provider run: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="provider_run_captured",
+            actor="conclave", authority_level="system",
+            subject_refs=[record.packet_ref],
+            artifact_hashes={"provider_run": record.content_hash},
+            payload={
+                "source_artifact": path.relative_to(ws.root).as_posix(),
+                "provider": record.response.provider,
+                "role": record.role,
+                "status": record.status,
+                "egress_authority": record.egress_authority,
+                "egress_decision_ref": record.egress_decision_ref,
+            },
+            occurred_at=record.completed_at,
+            identifying_hash=record.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
     return candidates, unresolved
 
 
@@ -349,12 +431,15 @@ def _council_reviews(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
             actor="conclave", authority_level="system",
             subject_refs=[r.task_packet_ref, r.council_review_id],
             artifact_hashes={"council_review": r.content_hash or "",
-                             "task_packet": r.task_packet_hash},
+                             "task_packet": r.task_packet_hash,
+                             **({"route_plan": r.route_plan_hash}
+                                if r.route_plan_hash else {})},
             payload={"council_review_id": r.council_review_id,
                      "review_status": r.review_status,
                      "submission_count": len(r.submissions),
                      "missing_providers": r.missing_providers,
                      "governance_alert_count": len(r.governance_alerts),
+                     "selection_basis": r.selection_basis,
                      "yaml_file": p.name,
                      "markdown_file": p.with_suffix(".md").name,
                      "note": "a review artifact was produced; this asserts nothing about "
@@ -370,7 +455,16 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates: list[Candidate] = []
     unresolved: list[Unresolved] = []
 
-    for fn in (_task_packets, _relay_exports, _handoffs, _scope_reviews, _council_reviews):
+    for fn in (
+        _task_packets,
+        _context_bundles,
+        _route_plans,
+        _provider_runs,
+        _relay_exports,
+        _handoffs,
+        _scope_reviews,
+        _council_reviews,
+    ):
         c, u = fn(ws)
         candidates += c
         unresolved += u

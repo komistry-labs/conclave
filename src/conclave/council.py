@@ -42,8 +42,10 @@ from .models import TaskPacket
 from .scope import ScopeReview, read_review, verify_review_content_hash
 from .taskpacket import read_packet, verify_content_hash
 from .workspace import Workspace, utcnow
+from .routing import RoutePlan, read_route_plan
 
-COUNCIL_SCHEMA_VERSION = "council-review/0.1.0"
+COUNCIL_SCHEMA_VERSION = "council-review/0.2.0"
+LEGACY_COUNCIL_SCHEMA_VERSION = "council-review/0.1.0"
 ID_DIGEST_LEN = 10
 
 ReviewStatus = Literal[
@@ -88,6 +90,8 @@ class Submission(BaseModel):
 
     provider: str
     role: str
+    route_stage_index: int | None = None
+    participant_key: str | None = None
     submission_status: str
     recommended_next_action: str
     handoff_packet_hash: str
@@ -119,6 +123,10 @@ class CouncilReview(BaseModel):
     task_packet_ref: str
     task_packet_hash: str
     created_at: str
+    route_plan_hash: str | None = None
+    selection_basis: Literal["task_packet_assignments", "route_plan_stages"] = (
+        "task_packet_assignments"
+    )
 
     providers_expected: list[dict[str, str]] = Field(default_factory=list)
     submissions: list[Submission] = Field(default_factory=list)
@@ -209,6 +217,8 @@ def _verified_scope_reviews(ws: Workspace, packet: TaskPacket) -> dict[str, Scop
 
 def _select_submissions(
     handoffs: list[HandoffPacket],
+    *,
+    participant_key=None,
 ) -> tuple[dict[str, HandoffPacket], list[dict[str, Any]], list[str]]:
     """One submission per provider, by explicit import order.
 
@@ -218,7 +228,9 @@ def _select_submissions(
     """
     by_provider: dict[str, list[HandoffPacket]] = defaultdict(list)
     for h in handoffs:
-        by_provider[h.provider].append(h)
+        key = participant_key(h) if participant_key else h.provider
+        if key is not None:
+            by_provider[key].append(h)
 
     selected: dict[str, HandoffPacket] = {}
     superseded: list[dict[str, Any]] = []
@@ -368,11 +380,12 @@ def derive_status(
 
 
 def council_review_id(packet: TaskPacket, handoff_hashes: list[str],
-                      scope_hashes: list[str]) -> str:
+                      scope_hashes: list[str], route_plan_hash: str | None = None) -> str:
     """Deterministic from the source set, so an unchanged set re-derives the
     same id and therefore the same path. A changed set is a new review."""
     payload = "\n".join([
         COUNCIL_SCHEMA_VERSION, packet.ref, packet.content_hash or "",
+        route_plan_hash or "",
         *sorted(handoff_hashes), *sorted(scope_hashes),
     ])
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:ID_DIGEST_LEN]
@@ -383,11 +396,41 @@ def build_council_review(
     packet: TaskPacket,
     handoffs: list[HandoffPacket],
     scopes: dict[str, ScopeReview],
+    route_plan: RoutePlan | None = None,
 ) -> CouncilReview:
-    selected, superseded, ambiguous = _select_submissions(handoffs)
+    if route_plan:
+        def stage_key(h):
+            if getattr(h, "route_plan_hash", None) != route_plan.content_hash:
+                return None
+            index = getattr(h, "route_stage_index", None)
+            if not isinstance(index, int) or not 0 <= index < len(route_plan.stages):
+                return None
+            stage = route_plan.stages[index]
+            if (h.provider, h.role) != (stage.provider, stage.role):
+                return None
+            return f"s{index}:{h.provider}:{h.role}"
 
-    expected = [{"provider": a.provider, "role": a.role} for a in packet.assigned_providers]
-    missing = sorted({a.provider for a in packet.assigned_providers} - set(selected))
+        eligible_handoffs = [handoff for handoff in handoffs if stage_key(handoff)]
+        selected, superseded, ambiguous = _select_submissions(
+            eligible_handoffs, participant_key=stage_key
+        )
+        expected = [
+            {
+                "provider": stage.provider,
+                "role": stage.role,
+                "stage_index": str(index),
+                "participant_key": f"s{index}:{stage.provider}:{stage.role}",
+            }
+            for index, stage in enumerate(route_plan.stages)
+        ]
+        expected_keys = {item["participant_key"] for item in expected}
+        missing = sorted(expected_keys - set(selected))
+    else:
+        eligible_handoffs = handoffs
+        selected, superseded, ambiguous = _select_submissions(handoffs)
+        expected = [{"provider": a.provider, "role": a.role}
+                    for a in packet.assigned_providers]
+        missing = sorted({a.provider for a in packet.assigned_providers} - set(selected))
 
     submissions: list[Submission] = []
     provider_summaries: list[dict[str, Any]] = []
@@ -397,14 +440,18 @@ def build_council_review(
     governance_alerts: list[dict[str, Any]] = []
     scope_rows: list[dict[str, Any]] = []
 
-    for provider in sorted(selected):
-        h = selected[provider]
+    for participant in sorted(selected):
+        h = selected[participant]
+        provider = h.provider
+        stage_index = getattr(h, "route_stage_index", None) if route_plan else None
         review = scopes.get(h.content_hash or "")
         violations = review.violation_count if review else 0
         status = review.scope_status if review else "not_evaluated"
 
         submissions.append(Submission(
             provider=provider, role=h.role,
+            route_stage_index=stage_index,
+            participant_key=participant if route_plan else None,
             submission_status=h.status,
             recommended_next_action=h.recommended_next_action,
             handoff_packet_hash=h.content_hash or "",
@@ -466,14 +513,23 @@ def build_council_review(
     consolidated.sort(key=lambda f: (SEVERITY_ORDER.index(f["severity"]), f["provider"]))
     agreements, disagreements = detect_structural(selected, scopes)
 
-    handoff_hashes = sorted(h.content_hash or "" for h in handoffs)
-    scope_hashes = sorted(r.content_hash or "" for r in scopes.values())
+    handoff_hashes = sorted(h.content_hash or "" for h in eligible_handoffs)
+    eligible_hashes = set(handoff_hashes)
+    scope_hashes = sorted(
+        r.content_hash or "" for handoff_hash, r in scopes.items()
+        if handoff_hash in eligible_hashes
+    )
 
     return seal(CouncilReview(
-        council_review_id=council_review_id(packet, handoff_hashes, scope_hashes),
+        council_review_id=council_review_id(
+            packet, handoff_hashes, scope_hashes,
+            route_plan.content_hash if route_plan else None,
+        ),
         task_packet_ref=packet.ref,
         task_packet_hash=packet.content_hash or "",
         created_at=utcnow(),
+        route_plan_hash=route_plan.content_hash if route_plan else None,
+        selection_basis="route_plan_stages" if route_plan else "task_packet_assignments",
         providers_expected=expected,
         submissions=submissions,
         missing_providers=missing,
@@ -505,6 +561,9 @@ def build_council_review(
 
 def compute_content_hash(review: CouncilReview) -> str:
     payload = {k: v for k, v in review.to_serialisable().items() if k != "content_hash"}
+    if review.schema_version == LEGACY_COUNCIL_SCHEMA_VERSION:
+        payload.pop("route_plan_hash", None)
+        payload.pop("selection_basis", None)
     return hash_text(yaml.safe_dump(payload, sort_keys=True, allow_unicode=True))
 
 
@@ -744,7 +803,9 @@ def _load_existing(path: Path, expected_id: str, packet: TaskPacket) -> CouncilR
     return existing
 
 
-def review_task(ws: Workspace, task_id: str, version: int) -> CouncilOutcome:
+def review_task(
+    ws: Workspace, task_id: str, version: int, route_path: Path | None = None,
+) -> CouncilOutcome:
     """Aggregate verified submissions for one immutable Task Packet version.
 
     IDEMPOTENT for an unchanged source set: the review id is derived from the
@@ -761,8 +822,13 @@ def review_task(ws: Workspace, task_id: str, version: int) -> CouncilOutcome:
 
     handoffs = _verified_handoffs(ws, packet)
     scopes = _verified_scope_reviews(ws, packet)
+    route_plan = read_route_plan(route_path) if route_path else None
+    if route_plan and route_plan.packet_ref != packet.ref:
+        raise ValidationError(
+            f"Route Plan cites {route_plan.packet_ref}, expected {packet.ref}"
+        )
 
-    review = build_council_review(packet, handoffs, scopes)
+    review = build_council_review(packet, handoffs, scopes, route_plan=route_plan)
     ypath = yaml_path(ws, review.council_review_id)
 
     if ypath.exists():

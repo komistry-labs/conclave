@@ -14,11 +14,16 @@ import yaml
 
 from . import __version__, ledger
 from .council import review_task
+from .context import ContextSource, build_context_bundle, write_context_bundle
 from .errors import ConclaveError
+from .execution import execute_stage, read_run_record, write_run_record
 from .handoff import import_response
 from .models import SCHEMA_VERSION
 from .reconcile import reconcile
 from .relay import export_prompts
+from .providers import EgressDecision, FixtureAdapter, read_egress_decision
+from .routing import ProviderCapability, TokenBudget, build_route, write_route_plan
+from .runhandoff import convert_run
 from .scope import review_handoff
 from .taskpacket import (
     build_packet,
@@ -60,12 +65,24 @@ council_app = typer.Typer(
 ledger_app = typer.Typer(
     help="Append-only hash-chained EVENT ledger (audit chain of governed events).",
     no_args_is_help=True)
+context_app = typer.Typer(
+    help="Governed context bundles. Sealed, provenance-bearing, and write-once.",
+    no_args_is_help=True)
+route_app = typer.Typer(
+    help="Adaptive provider route plans and token ceilings.",
+    no_args_is_help=True)
+run_app = typer.Typer(
+    help="Execute one authorized route stage and preserve its normalized response.",
+    no_args_is_help=True)
 
 app.add_typer(task_app, name="task")
 app.add_typer(relay_app, name="relay")
 app.add_typer(scope_app, name="scope")
 app.add_typer(council_app, name="council")
 app.add_typer(ledger_app, name="ledger")
+app.add_typer(context_app, name="context")
+app.add_typer(route_app, name="route")
+app.add_typer(run_app, name="run")
 
 
 def _fail(msg: str) -> None:
@@ -122,6 +139,331 @@ def parse_provider(spec: str) -> dict:
     if not provider.strip():
         raise typer.BadParameter(f"empty provider in {spec!r}")
     return {"provider": provider.strip(), "role": role.strip() or None}
+
+
+def parse_capability(spec: str) -> tuple[str, str]:
+    provider, separator, role = spec.partition(":")
+    if not separator or not provider.strip() or not role.strip():
+        raise typer.BadParameter("capability must be provider:role")
+    return provider.strip(), role.strip()
+
+
+@context_app.command("create")
+def context_create(
+    task_id: str = typer.Argument(...),
+    manifest: Path = typer.Option(..., "--manifest", "-m",
+                                  help="YAML list or {sources: [...]} with source content."),
+    version: int = typer.Option(1, "--version", "-v", min=1),
+) -> None:
+    """CREATE an immutable context bundle from an explicit source manifest."""
+    ws, _ = _ws()
+    try:
+        packet = read_packet(ws, task_id, version)
+        raw = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        items = raw.get("sources") if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            raise ConclaveError("context manifest must contain a sources list")
+        sources = [ContextSource.seal(
+            object_id=item["object_id"], status=item["status"],
+            authority=item["authority"], classification=item["classification"],
+            content=item["content"],
+        ) for item in items]
+        bundle = build_context_bundle(
+            packet_ref=packet.ref, packet_content_hash=packet.content_hash or "",
+            sources=sources,
+        )
+        path, created = write_context_bundle(ws, bundle)
+    except (ConclaveError, OSError, KeyError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    typer.echo(f"context hash: {bundle.content_hash}")
+    if created:
+        _record(
+            ws, event_type="context_bundle_created", actor="conclave",
+            authority_level="system", subject_refs=[packet.ref],
+            artifact_hashes={"context_bundle": bundle.content_hash},
+            payload={"source_artifact": path.relative_to(ws.root).as_posix()},
+        )
+
+
+@route_app.command("plan")
+def route_plan(
+    task_id: str = typer.Argument(...),
+    risk: str = typer.Option(..., "--risk"),
+    capability: list[str] = typer.Option(
+        ..., "--capability", "-c", help="Repeat provider:role."),
+    version: int = typer.Option(1, "--version", "-v", min=1),
+    max_input_tokens: int = typer.Option(..., "--max-input-tokens", min=1),
+    max_output_tokens: int = typer.Option(..., "--max-output-tokens", min=1),
+) -> None:
+    """CREATE a deterministic adaptive route plan. Makes no provider call."""
+    ws, _ = _ws()
+    try:
+        packet = read_packet(ws, task_id, version)
+        grouped: dict[str, set[str]] = {}
+        for spec in capability:
+            provider, role = parse_capability(spec)
+            grouped.setdefault(provider, set()).add(role)
+        capabilities = [
+            ProviderCapability(provider=provider, roles=frozenset(roles))
+            for provider, roles in sorted(grouped.items())
+        ]
+        plan = build_route(
+            packet_ref=packet.ref, risk=risk, capabilities=capabilities,
+            budget=TokenBudget(
+                max_input_tokens=max_input_tokens,
+                max_output_tokens=max_output_tokens,
+            ),
+        )
+        path, created = write_route_plan(ws, plan)
+    except (ConclaveError, OSError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    for stage in plan.stages:
+        typer.echo(f"  {stage.role}: {stage.provider}")
+    if created:
+        _record(
+            ws, event_type="route_plan_created", actor="conclave",
+            authority_level="system", subject_refs=[packet.ref],
+            artifact_hashes={"route_plan": plan.content_hash},
+            payload={"source_artifact": path.relative_to(ws.root).as_posix()},
+        )
+
+
+@run_app.command("fixture")
+def run_fixture(
+    context_file: Path = typer.Option(..., "--context"),
+    route_file: Path = typer.Option(..., "--route"),
+    prompt_file: Path = typer.Option(..., "--prompt"),
+    response_file: Path = typer.Option(..., "--response"),
+    model: str = typer.Option("fixture-model", "--model"),
+    stage_index: int = typer.Option(0, "--stage-index", min=0),
+    estimated_input_tokens: int = typer.Option(..., "--estimated-input-tokens", min=0),
+) -> None:
+    """EXECUTE a local fixture adapter. No network or provider account is used."""
+    from .context import read_context_bundle
+    from .routing import read_route_plan
+
+    ws, _ = _ws()
+    try:
+        bundle = read_context_bundle(context_file)
+        plan = read_route_plan(route_file)
+        task_id, version_text = bundle.packet_ref.rsplit("@v", 1)
+        packet = read_packet(ws, task_id, int(version_text))
+        stage = plan.stages[stage_index]
+        adapter = FixtureAdapter(
+            provider=stage.provider,
+            response_text=response_file.read_text(encoding="utf-8"),
+        )
+        decision = EgressDecision(
+            allowed=True,
+            transports=frozenset({"fixture"}),
+            classifications=frozenset(
+                source.classification for source in bundle.sources
+            ),
+            authority="CONCLAVE",
+            decision_ref="LOCAL-FIXTURE-NO-EGRESS",
+        )
+        record = execute_stage(
+            packet=packet, bundle=bundle, plan=plan, stage_index=stage_index,
+            adapter=adapter, decision=decision, model=model,
+            prompt=prompt_file.read_text(encoding="utf-8"),
+            estimated_input_tokens=estimated_input_tokens,
+            prior_runs=[
+                prior for prior in (
+                    read_run_record(path) for path in ws.runs_dir.glob("*.yaml")
+                )
+                if prior.route_plan_hash == plan.content_hash
+                and prior.stage_index < stage_index
+            ],
+        )
+        path, created = write_run_record(ws, record)
+    except (ConclaveError, OSError, IndexError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    typer.echo(f"status: {record.status}")
+    typer.echo(
+        f"tokens: input={record.response.usage.input_tokens} "
+        f"output={record.response.usage.output_tokens}"
+    )
+    if created:
+        _record(
+            ws, event_type="provider_run_captured", actor="conclave",
+            authority_level="system", subject_refs=[record.packet_ref],
+            artifact_hashes={"provider_run": record.content_hash},
+            payload={
+                "source_artifact": path.relative_to(ws.root).as_posix(),
+                "provider": record.response.provider,
+                "role": record.role,
+                "status": record.status,
+            },
+        )
+
+
+@run_app.command("live")
+def run_live(
+    context_file: Path = typer.Option(..., "--context"),
+    route_file: Path = typer.Option(..., "--route"),
+    prompt_file: Path = typer.Option(..., "--prompt"),
+    egress_decision_file: Path = typer.Option(
+        ..., "--egress-decision",
+        help="Principal-authored D7 policy permitting this provider transport.",
+    ),
+    model: str = typer.Option(..., "--model"),
+    stage_index: int = typer.Option(0, "--stage-index", min=0),
+    estimated_input_tokens: int = typer.Option(
+        ..., "--estimated-input-tokens", min=0
+    ),
+    timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+) -> None:
+    """EXECUTE one live provider stage after explicit D7 authorization."""
+    from .context import read_context_bundle
+    from .live_providers import ClaudeAdapter, GeminiAdapter, OpenAIAdapter
+    from .routing import read_route_plan
+
+    ws, config = _ws()
+    try:
+        bundle = read_context_bundle(context_file)
+        plan = read_route_plan(route_file)
+        task_id, version_text = bundle.packet_ref.rsplit("@v", 1)
+        packet = read_packet(ws, task_id, int(version_text))
+        stage = plan.stages[stage_index]
+        decision = read_egress_decision(
+            egress_decision_file, principal=config.get("principal", "")
+        )
+        if stage.provider in {"adrian", "openai"}:
+            adapter = OpenAIAdapter(
+                provider=stage.provider, timeout_seconds=timeout_seconds
+            )
+        elif stage.provider == "claude":
+            adapter = ClaudeAdapter(timeout_seconds=timeout_seconds)
+        elif stage.provider == "gemini":
+            adapter = GeminiAdapter(timeout_seconds=timeout_seconds)
+        else:
+            raise ConclaveError(
+                f"no live adapter is registered for provider {stage.provider!r}"
+            )
+        record = execute_stage(
+            packet=packet, bundle=bundle, plan=plan, stage_index=stage_index,
+            adapter=adapter, decision=decision, model=model,
+            prompt=prompt_file.read_text(encoding="utf-8"),
+            estimated_input_tokens=estimated_input_tokens,
+            prior_runs=[
+                prior for prior in (
+                    read_run_record(path) for path in ws.runs_dir.glob("*.yaml")
+                )
+                if prior.route_plan_hash == plan.content_hash
+                and prior.stage_index < stage_index
+            ],
+        )
+        path, created = write_run_record(ws, record)
+    except (ConclaveError, OSError, IndexError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    typer.echo(f"provider: {record.response.provider}")
+    typer.echo(f"model: {record.response.model}")
+    typer.echo(f"status: {record.status}")
+    typer.echo(
+        f"tokens: input={record.response.usage.input_tokens} "
+        f"cached_input={record.response.usage.cached_input_tokens} "
+        f"output={record.response.usage.output_tokens} "
+        f"reasoning_output={record.response.usage.reasoning_output_tokens}"
+    )
+    if created:
+        _record(
+            ws, event_type="provider_run_captured", actor="conclave",
+            authority_level="system", subject_refs=[record.packet_ref],
+            artifact_hashes={"provider_run": record.content_hash},
+            payload={
+                "source_artifact": path.relative_to(ws.root).as_posix(),
+                "provider": record.response.provider,
+                "role": record.role,
+                "status": record.status,
+                "egress_decision_ref": decision.decision_ref,
+            },
+        )
+
+
+@run_app.command("handoff")
+def run_handoff(
+    run_file: Path = typer.Argument(..., help="Sealed Provider Run YAML."),
+    scope: bool = typer.Option(
+        True, "--scope/--no-scope", help="Create the existing Scope Review immediately."),
+) -> None:
+    """PROJECT a completed Provider Run into a validated Handoff Packet."""
+    ws, _ = _ws()
+    try:
+        result = convert_run(ws, run_file)
+        scope_outcome = review_handoff(ws, result.handoff_path) if scope else None
+    except (ConclaveError, OSError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(
+        f"{'created' if result.created else 'unchanged'} handoff: "
+        f"{result.handoff_path}"
+    )
+    typer.echo(f"raw response: {result.raw_path}")
+    if result.created:
+        packet = result.packet
+        _record(
+            ws, event_type="provider_response_preserved",
+            actor=packet.provider, authority_level="advisory_agent",
+            artifact_hashes={"raw_response": packet.raw_response_hash},
+            payload={
+                "raw_file": result.raw_path.name,
+                "source_run": Path(run_file).name,
+                "note": "normalized provider response text captured by sealed Run Record",
+            },
+        )
+        _record(
+            ws, event_type="handoff_packet_imported",
+            actor=packet.provider, authority_level="advisory_agent",
+            subject_refs=[packet.packet_ref],
+            artifact_hashes={
+                "handoff_packet": packet.content_hash,
+                "raw_response": packet.raw_response_hash,
+                "prompt": packet.prompt_hash,
+                "provider_run": packet.run_record_hash,
+            },
+            payload={
+                "provider": packet.provider, "role": packet.role,
+                "submission_status": packet.status,
+                "recommended_next_action": packet.recommended_next_action,
+                "declared_objects_touched": sorted(packet.touched_keys()),
+                "handoff_file": result.handoff_path.name,
+                "source_run": Path(run_file).name,
+                "note": "projected from a verified completed Provider Run",
+            },
+        )
+    if scope_outcome:
+        typer.echo(
+            f"{'created' if scope_outcome.created else 'unchanged'} scope: "
+            f"{scope_outcome.path}"
+        )
+        if scope_outcome.created:
+            review = scope_outcome.review
+            _record(
+                ws, event_type="scope_review_created",
+                subject_refs=[review.task_packet_ref],
+                artifact_hashes={
+                    "scope_review": review.content_hash,
+                    "handoff_packet": review.handoff_packet_hash,
+                    "task_packet": review.task_packet_hash,
+                },
+                payload={
+                    "provider": review.provider,
+                    "evaluator_schema": review.schema_version,
+                    "scope_status": review.scope_status,
+                    "violation_count": review.violation_count,
+                    "source_artifact": scope_outcome.path.relative_to(ws.root).as_posix(),
+                    "note": "an evaluator result under the named schema; it does "
+                            "not itself authorise remediation",
+                },
+            )
 
 
 # -- init / status ---------------------------------------------------------
@@ -719,6 +1061,8 @@ def scope_review(
 def council_review(
     task_id: str = typer.Argument(..., help="Task to aggregate."),
     version: int = typer.Option(None, "--version", "-v", help="Defaults to latest."),
+    route: Path = typer.Option(
+        None, "--route", help="Optional sealed Route Plan for stage-aware selection."),
 ) -> None:
     """CREATE a Council Review Packet (canonical YAML) and PROJECT it to Markdown.\n\n    Idempotent for an unchanged source set.\n    """
     ws, _ = _ws()
@@ -728,7 +1072,7 @@ def council_review(
         return
 
     try:
-        outcome = review_task(ws, task_id, v)
+        outcome = review_task(ws, task_id, v, route_path=route)
     except ConclaveError as exc:
         _fail(str(exc))
         return
@@ -742,12 +1086,15 @@ def council_review(
         _record(ws, event_type="council_review_created",
                 subject_refs=[r.task_packet_ref, r.council_review_id],
                 artifact_hashes={"council_review": r.content_hash,
-                                 "task_packet": r.task_packet_hash},
+                                 "task_packet": r.task_packet_hash,
+                                 **({"route_plan": r.route_plan_hash}
+                                    if r.route_plan_hash else {})},
                 payload={"council_review_id": r.council_review_id,
                          "review_status": r.review_status,
                          "submission_count": len(r.submissions),
                          "missing_providers": r.missing_providers,
                          "governance_alert_count": len(r.governance_alerts),
+                         "selection_basis": r.selection_basis,
                          "yaml_file": outcome.yaml_path.name,
                          "markdown_file": outcome.markdown_path.name,
                          "note": "a review artifact was produced; this asserts nothing "

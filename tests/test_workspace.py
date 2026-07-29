@@ -17,7 +17,7 @@ def test_create_writes_config(tmp_path):
     ws = Workspace.create(tmp_path, principal="Arthur")
     config = yaml.safe_load(ws.config_path.read_text(encoding="utf-8"))
     assert config["principal"] == "Arthur"
-    assert config["bootstrap_version"] == "0.1.0"
+    assert config["bootstrap_version"] == "0.2.0"
 
 
 def test_agents_may_not_merge_by_default(tmp_path):

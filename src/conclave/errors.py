@@ -29,3 +29,7 @@ class ValidationError(ConclaveError):
 
 class LedgerError(ConclaveError):
     """Ledger chain is broken, or an append would violate append-only."""
+
+
+class ProviderError(ConclaveError):
+    """A live provider request failed or returned an unusable response."""

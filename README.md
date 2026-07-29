@@ -1,7 +1,8 @@
-# CONCLAVE — Bootstrap 0.1
+# CONCLAVE v0.2.0
 
 A local command-line tool for coordinating several AI providers on Komistry OS
-work, through manual relay, with an auditable trail.
+work through manual relay or explicitly authorized live adapters, with an
+auditable trail.
 
 ```
 one instruction  →  independent advisory responses  →  structured review  →  human decision
@@ -18,9 +19,9 @@ artifact hashed, immutable, and recorded in a verifiable chain.
 
 ## Non-goals
 
-Bootstrap 0.1 deliberately does **not**:
+CONCLAVE deliberately does **not**:
 
-- call provider APIs — all relay is manual copy and paste
+- call a provider API without an explicit principal-authored egress decision
 - automate GitHub, pull requests or merges
 - modify Komistry OS in any way
 - interpret provider prose, semantically or with embeddings
@@ -72,7 +73,9 @@ conclave --help
 ├── scope/                   sealed Scope Reviews
 ├── council/                 Council Review YAML (canonical) + .md (projection)
 ├── ledger/ledger.jsonl      hash-chained event ledger
-└── runs/
+├── context/                 sealed provider context bundles
+├── routes/                  sealed stage and token-budget plans
+└── runs/                    normalized, immutable provider runs
 ```
 
 ---
@@ -127,6 +130,60 @@ agreement that means nothing.
 
 If a reply is rejected, send the generated repair request back to the *same*
 provider and import the corrected reply. The rejected bytes are kept.
+
+---
+
+## Live provider execution
+
+OpenAI, Claude, and Gemini have live HTTP adapters. Manual relay remains
+available. Live execution still uses the same sealed Task Packet, Context
+Bundle, Route Plan, cumulative token ceilings, provider independence rules,
+and immutable Run Record.
+
+Credentials are read only from the process environment:
+
+| Route provider | API | Credential |
+|---|---|---|
+| `adrian` or `openai` | OpenAI Responses API | `OPENAI_API_KEY` |
+| `claude` | Anthropic Messages API | `ANTHROPIC_API_KEY` |
+| `gemini` | Gemini `generateContent` API | `GEMINI_API_KEY` |
+
+CONCLAVE does not create an egress decision. Arthur must supply the D7 policy:
+
+```yaml
+schema_version: egress-decision/0.1.0
+allowed: true
+transports:
+  - openai-responses-api
+  - anthropic-messages-api
+  - gemini-generate-content-api
+classifications:
+  - public
+  - internal
+authority: Arthur
+decision_ref: D7-<authoritative-reference>
+```
+
+Then execute one route stage:
+
+```powershell
+conclave run live `
+  --context .conclave/context/<bundle>.yaml `
+  --route .conclave/routes/<route>.yaml `
+  --prompt instruction.md `
+  --egress-decision D7-egress.yaml `
+  --model <provider-model-id> `
+  --stage-index 0 `
+  --estimated-input-tokens 1000
+```
+
+The command fails before network access if the policy authority does not match
+the workspace principal, the route transport or context classification is not
+authorized, the Task Packet binding is invalid, a predecessor stage is
+missing, or the estimated cumulative token ceiling is exceeded.
+
+Provider-reported total, cached-input, output, and reasoning-output tokens are
+normalized into the Run Record. Pricing is deliberately not embedded.
 
 ---
 

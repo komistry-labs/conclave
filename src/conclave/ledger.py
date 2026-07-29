@@ -67,6 +67,9 @@ EVENT_TYPES = (
     "council_review_created",
     "integrity_failure_detected",
     "operation_refused",
+    "context_bundle_created",
+    "route_plan_created",
+    "provider_run_captured",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -481,6 +484,9 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("scope_reviews", "scope", "*.yaml", False),
     ("council_reviews", "council", "*.yaml", False),
     ("council_markdown", "council", "*.md", False),
+    ("context_bundles", "context", "*.yaml", False),
+    ("route_plans", "routes", "*.yaml", False),
+    ("provider_runs", "runs", "*.yaml", False),
 )
 
 

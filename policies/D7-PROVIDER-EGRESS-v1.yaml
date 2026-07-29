@@ -1,0 +1,11 @@
+schema_version: egress-decision/0.1.0
+allowed: true
+transports:
+  - openai-responses-api
+  - anthropic-messages-api
+  - gemini-generate-content-api
+classifications:
+  - public
+  - internal
+authority: Arthur
+decision_ref: D7-PROVIDER-EGRESS-v1

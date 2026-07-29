@@ -12,6 +12,12 @@ from conclave.reconcile import RECONCILIATION_REASON, discover, reconcile
 from conclave.relay import export_filename, export_prompts
 from conclave.scope import review_handoff
 from conclave.council import review_task
+from conclave.context import ContextSource, build_context_bundle, write_context_bundle
+from conclave.execution import execute_stage, write_run_record
+from conclave.providers import EgressDecision, FixtureAdapter
+from conclave.routing import (
+    ProviderCapability, TokenBudget, build_route, write_route_plan,
+)
 from conclave.taskpacket import build_packet, build_revision, write_packet
 from conclave.workspace import Workspace
 
@@ -79,6 +85,94 @@ def test_discovers_all_supported_classes(ws, config, tmp_path):
 def test_empty_workspace_discovers_nothing(ws):
     candidates, unresolved = discover(ws)
     assert candidates == [] and unresolved == []
+
+
+def test_discovers_context_route_and_provider_run(ws):
+    packet = build_packet(objective="reconcile execution", created_by="Arthur")
+    write_packet(ws, packet)
+    bundle = build_context_bundle(
+        packet_ref=packet.ref, packet_content_hash=packet.content_hash,
+        sources=[ContextSource.seal(
+            object_id="DOC-001", status="active", authority="Arthur",
+            classification="internal", content="facts",
+        )],
+    )
+    write_context_bundle(ws, bundle)
+    plan = build_route(
+        packet_ref=packet.ref, risk="routine",
+        capabilities=[
+            ProviderCapability(provider="adrian", roles=frozenset({"lead"}))
+        ],
+        budget=TokenBudget(max_input_tokens=100, max_output_tokens=20),
+    )
+    write_route_plan(ws, plan)
+    run = execute_stage(
+        packet=packet, bundle=bundle, plan=plan, stage_index=0,
+        adapter=FixtureAdapter(provider="adrian"),
+        decision=EgressDecision(
+            allowed=True, transports=frozenset({"fixture"}),
+            classifications=frozenset({"internal"}),
+            authority="CONCLAVE", decision_ref="LOCAL-FIXTURE-NO-EGRESS",
+        ),
+        model="fixture-model", prompt="work", estimated_input_tokens=1,
+    )
+    write_run_record(ws, run)
+
+    candidates, unresolved = discover(ws)
+    found = {candidate.event_type for candidate in candidates}
+    assert {
+        "task_packet_created",
+        "context_bundle_created",
+        "route_plan_created",
+        "provider_run_captured",
+    } <= found
+    assert unresolved == []
+
+
+def test_reconciles_new_execution_artifacts(ws, config):
+    packet = build_packet(objective="reconcile execution", created_by="Arthur")
+    write_packet(ws, packet)
+    bundle = build_context_bundle(
+        packet_ref=packet.ref, packet_content_hash=packet.content_hash,
+        sources=[],
+    )
+    write_context_bundle(ws, bundle)
+    plan = build_route(
+        packet_ref=packet.ref, risk="routine",
+        capabilities=[
+            ProviderCapability(provider="adrian", roles=frozenset({"lead"}))
+        ],
+        budget=TokenBudget(max_input_tokens=100, max_output_tokens=20),
+    )
+    write_route_plan(ws, plan)
+    initialise(ws, config)
+    created = {event["event_type"] for event in reconcile(ws).created}
+    assert {
+        "task_packet_created", "context_bundle_created", "route_plan_created"
+    } <= created
+
+
+def test_route_bound_council_reconciliation_preserves_route_provenance(ws):
+    packet = build_packet(objective="route council", created_by="Arthur")
+    write_packet(ws, packet)
+    plan = build_route(
+        packet_ref=packet.ref, risk="routine",
+        capabilities=[
+            ProviderCapability(provider="adrian", roles=frozenset({"lead"}))
+        ],
+        budget=TokenBudget(max_input_tokens=100, max_output_tokens=20),
+    )
+    route_path, _ = write_route_plan(ws, plan)
+    review_task(ws, packet.task_id, 1, route_path=route_path)
+
+    candidates, unresolved = discover(ws)
+    council = next(
+        candidate for candidate in candidates
+        if candidate.event_type == "council_review_created"
+    )
+    assert council.artifact_hashes["route_plan"] == plan.content_hash
+    assert council.payload["selection_basis"] == "route_plan_stages"
+    assert unresolved == []
 
 
 # -- reconciliation --------------------------------------------------------
