@@ -122,6 +122,7 @@ class DecisionOutcome:
     yaml_path: Path
     markdown_path: Path
     created: bool
+    gate: object | None = None
 
 
 def instruction_hash(instruction: DecisionInstruction) -> str:
@@ -254,6 +255,8 @@ def record_decision(
     *,
     confirmed_principal: str,
     prepared: AuthorityDecisionRecord | None = None,
+    identity_verification_reference: str | None = None,
+    signed_evidence_binding_reference: str | None = None,
 ) -> DecisionOutcome:
     # Human decisions require an already-initialised, healthy audit chain.
     # This check occurs before any artifact write.
@@ -279,6 +282,21 @@ def record_decision(
         if prepared.model_dump(exclude=stable_fields) != check.model_dump(exclude=stable_fields):
             raise ValidationError("prepared decision no longer matches verified sources")
 
+    # 19C supplements, but never replaces, the exact-principal ceremony above.
+    # The attestation covers the exact immutable Council Review being decided;
+    # audit.sign is not interpreted as approval of the decision itself.
+    from .gating import enforce_principal_gate
+
+    gate = enforce_principal_gate(
+        ws,
+        operation="authority_decision",
+        actor_id=record.decided_by,
+        target_reference=record.council_review_id,
+        target_hash=record.council_review_hash,
+        identity_verification_reference=identity_verification_reference,
+        signed_evidence_binding_reference=signed_evidence_binding_reference,
+    )
+
     existing = _existing_for_review(ws, record.council_review_id)
     if existing:
         if len(existing) != 1:
@@ -294,7 +312,7 @@ def record_decision(
             if not projection.exists():
                 write_canonical(projection, render_markdown(current))
             outcome = DecisionOutcome(
-                current, existing[0], projection, False
+                current, existing[0], projection, False, gate
             )
             _record_ledger_event(ws, outcome)
             return outcome
@@ -309,7 +327,7 @@ def record_decision(
     text = yaml.safe_dump(record.to_serialisable(), sort_keys=False, allow_unicode=True)
     ypath.write_bytes(text.replace("\r\n", "\n").encode("utf-8"))
     write_canonical(mpath, render_markdown(record))
-    outcome = DecisionOutcome(record, ypath, mpath, True)
+    outcome = DecisionOutcome(record, ypath, mpath, True, gate)
     _record_ledger_event(ws, outcome)
     return outcome
 
@@ -319,6 +337,15 @@ def _record_ledger_event(ws: Workspace, outcome: DecisionOutcome) -> None:
     from .ledger import append_event
 
     record = outcome.record
+    gate_payload = {}
+    if outcome.gate is not None and getattr(outcome.gate, "mode", "local") != "local":
+        gate_payload = {
+            "identity_mode": outcome.gate.mode,
+            "identity_verification_hash": outcome.gate.identity_verification_hash,
+            "signed_evidence_binding_hash": outcome.gate.signed_evidence_binding_hash,
+            "identity_authority_effect": "none",
+            "identity_membership_effect": "none",
+        }
     append_event(
         ws,
         event_type="human_decision_recorded",
@@ -339,6 +366,7 @@ def _record_ledger_event(ws: Workspace, outcome: DecisionOutcome) -> None:
             "identity_assurance": record.identity_assurance,
             "note": "records the named human principal's bounded decision; provider "
                     "submissions remain advisory",
+            **gate_payload,
         },
         occurred_at=record.decided_at,
     )

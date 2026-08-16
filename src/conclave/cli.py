@@ -82,6 +82,12 @@ run_app = typer.Typer(
 orchestrate_app = typer.Typer(
     help="Advance sealed execution evidence to a Council Review and explicit pause.",
     no_args_is_help=True)
+identity_app = typer.Typer(
+    help="Opt-in IDM verification modes. Identity never creates authority or membership.",
+    no_args_is_help=True)
+evidence_app = typer.Typer(
+    help="Public signed-evidence coordination. No private-key or signing command exists.",
+    no_args_is_help=True)
 
 app.add_typer(task_app, name="task")
 app.add_typer(relay_app, name="relay")
@@ -92,6 +98,8 @@ app.add_typer(context_app, name="context")
 app.add_typer(route_app, name="route")
 app.add_typer(run_app, name="run")
 app.add_typer(orchestrate_app, name="orchestrate")
+app.add_typer(identity_app, name="identity")
+app.add_typer(evidence_app, name="evidence")
 
 
 def _fail(msg: str) -> None:
@@ -327,6 +335,12 @@ def run_live(
         ..., "--estimated-input-tokens", min=0
     ),
     timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+    identity_verification: str | None = typer.Option(
+        None, "--identity-verification",
+        help="Workspace-relative immutable identity verification record."),
+    evidence_binding: str | None = typer.Option(
+        None, "--evidence-binding",
+        help="Workspace-relative signed evidence binding required in attested mode."),
 ) -> None:
     """EXECUTE one live provider stage after explicit D7 authorization."""
     from .context import read_context_bundle
@@ -341,7 +355,9 @@ def run_live(
         packet = read_packet(ws, task_id, int(version_text))
         stage = plan.stages[stage_index]
         decision = read_egress_decision(
-            egress_decision_file, principal=config.get("principal", "")
+            egress_decision_file, principal=config.get("principal", ""), workspace=ws,
+            identity_verification_reference=identity_verification,
+            signed_evidence_binding_reference=evidence_binding,
         )
         if stage.provider in {"adrian", "openai"}:
             adapter = OpenAIAdapter(
@@ -431,6 +447,9 @@ def run_concurrent_live(
     max_attempts: int = typer.Option(1, "--max-attempts", min=1, max=3),
     fail_fast: bool = typer.Option(False, "--fail-fast"),
     timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+    identity_verification: str | None = typer.Option(
+        None, "--identity-verification"),
+    evidence_binding: str | None = typer.Option(None, "--evidence-binding"),
 ) -> None:
     """EXECUTE an isolated lead/critic/verifier wave concurrently.
 
@@ -448,7 +467,9 @@ def run_concurrent_live(
         task_id, version_text = bundle.packet_ref.rsplit("@v", 1)
         packet = read_packet(ws, task_id, int(version_text))
         decision = read_egress_decision(
-            egress_decision_file, principal=config.get("principal", "")
+            egress_decision_file, principal=config.get("principal", ""), workspace=ws,
+            identity_verification_reference=identity_verification,
+            signed_evidence_binding_reference=evidence_binding,
         )
         if stage_indices:
             indices = tuple(sorted(stage_indices))
@@ -964,6 +985,9 @@ def orchestrate_synthesize_live(
         ..., "--estimated-input-tokens", min=0
     ),
     timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+    identity_verification: str | None = typer.Option(
+        None, "--identity-verification"),
+    evidence_binding: str | None = typer.Option(None, "--evidence-binding"),
 ) -> None:
     """EXECUTE the one governed live synthesizer stage, then pause for Arthur."""
     from .live_providers import ClaudeAdapter, GeminiAdapter, OpenAIAdapter
@@ -972,7 +996,9 @@ def orchestrate_synthesize_live(
     try:
         _, provider = synthesis_target(ws, source_file)
         decision = read_egress_decision(
-            egress_decision_file, principal=config.get("principal", "")
+            egress_decision_file, principal=config.get("principal", ""), workspace=ws,
+            identity_verification_reference=identity_verification,
+            signed_evidence_binding_reference=evidence_binding,
         )
         if provider in {"adrian", "openai"}:
             adapter = OpenAIAdapter(provider=provider, timeout_seconds=timeout_seconds)
@@ -1750,6 +1776,9 @@ def council_record_decision(
     instruction_file: Path = typer.Argument(
         ..., exists=True, dir_okay=False,
         help="Strict principal-authored authority-decision instruction YAML."),
+    identity_verification: str | None = typer.Option(
+        None, "--identity-verification"),
+    evidence_binding: str | None = typer.Option(None, "--evidence-binding"),
 ) -> None:
     """RECORD a human decision as a separate immutable, hash-bound artifact.
 
@@ -1784,7 +1813,9 @@ def council_record_decision(
 
     try:
         outcome = record_decision(
-            ws, instruction, confirmed_principal=confirmation, prepared=candidate
+            ws, instruction, confirmed_principal=confirmation, prepared=candidate,
+            identity_verification_reference=identity_verification,
+            signed_evidence_binding_reference=evidence_binding,
         )
     except ConclaveError as exc:
         # If the artifact was written but the ledger append failed, it is kept.
@@ -1819,6 +1850,96 @@ def council_record_decision(
     )
 
 
+@identity_app.command("show-mode")
+def identity_show_mode() -> None:
+    """DISPLAY the explicit workspace identity mode; missing legacy state is local."""
+    from .gating import identity_mode
+
+    ws, _ = _ws()
+    try:
+        mode = identity_mode(ws)
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(mode)
+
+
+@identity_app.command("import-binding")
+def identity_import_binding(
+    source: Path = typer.Argument(..., exists=True, dir_okay=False),
+) -> None:
+    """IMPORT a public actor-binding claim; this does not establish a PASS."""
+    from .gating import import_actor_binding
+
+    ws, config = _ws()
+    principal = config.get("principal")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to import this binding claim"
+    )
+    try:
+        binding, path, created = import_actor_binding(
+            ws, source, confirmed_principal=confirmation
+        )
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    typer.echo(f"actor: {binding.actor_id}")
+    typer.echo("status: awaiting-verification")
+
+
+@identity_app.command("set-mode")
+def identity_set_mode(
+    mode: str = typer.Argument(..., help="local, verify, or attested"),
+) -> None:
+    """STRENGTHEN identity enforcement after exact principal confirmation."""
+    from .gating import MODE_ORDER, set_identity_mode
+
+    ws, config = _ws()
+    if mode not in MODE_ORDER:
+        _fail(f"unsupported identity mode {mode!r}")
+        return
+    principal = config.get("principal")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to set identity mode {mode!r}"
+    )
+    try:
+        selected, changed = set_identity_mode(
+            ws, mode, confirmed_principal=confirmation  # type: ignore[arg-type]
+        )
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'updated' if changed else 'unchanged'}: {selected}")
+
+
+@evidence_app.command("record-receipt")
+def evidence_record_receipt(
+    binding: str = typer.Option(..., "--binding"),
+    identity_verification: str = typer.Option(..., "--identity-verification"),
+) -> None:
+    """RECORD receipt of verified evidence; this is not approval or authority."""
+    from .gating import record_evidence_receipt
+
+    ws, config = _ws()
+    principal = config.get("principal")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to record evidence receipt"
+    )
+    try:
+        event, created = record_evidence_receipt(
+            ws,
+            signed_evidence_binding_reference=binding,
+            identity_verification_reference=identity_verification,
+            confirmed_principal=confirmation,
+        )
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'recorded' if created else 'unchanged'}: {event['event_id']}")
+    typer.echo("authority_effect: none")
+
+
 @ledger_app.command("init")
 def ledger_init() -> None:
     """CREATE the ledger: genesis plus one snapshot attesting existing artifacts."""
@@ -1844,6 +1965,51 @@ def ledger_init() -> None:
                     "snapshot time.", fg=typer.colors.BRIGHT_BLACK)
         typer.secho("  It asserts nothing about when they were created or in what order. "
                     "No history was fabricated.", fg=typer.colors.BRIGHT_BLACK)
+
+
+@ledger_app.command("prepare-checkpoint")
+def ledger_prepare_checkpoint() -> None:
+    """CREATE an immutable unsigned checkpoint candidate for external attestation."""
+    from .checkpoint import prepare_ledger_checkpoint
+
+    ws, _ = _ws()
+    try:
+        checkpoint, path, created = prepare_ledger_checkpoint(ws)
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path}")
+    typer.echo(f"content_hash: {checkpoint.content_hash}")
+    typer.echo("status: unsigned-candidate; CONCLAVE did not sign anything")
+
+
+@ledger_app.command("record-signed-checkpoint")
+def ledger_record_signed_checkpoint(
+    checkpoint: str = typer.Option(..., "--checkpoint"),
+    identity_verification: str = typer.Option(..., "--identity-verification"),
+    evidence_binding: str = typer.Option(..., "--evidence-binding"),
+) -> None:
+    """RECORD an externally attested checkpoint after all 19C gates pass."""
+    from .checkpoint import record_signed_checkpoint
+
+    ws, config = _ws()
+    principal = config.get("principal")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to record this checkpoint"
+    )
+    try:
+        event, created = record_signed_checkpoint(
+            ws,
+            checkpoint_reference=checkpoint,
+            identity_verification_reference=identity_verification,
+            signed_evidence_binding_reference=evidence_binding,
+            confirmed_principal=confirmation,
+        )
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'recorded' if created else 'unchanged'}: {event['event_id']}")
+    typer.echo("authority_effect: none")
 
 
 @ledger_app.command("verify")
