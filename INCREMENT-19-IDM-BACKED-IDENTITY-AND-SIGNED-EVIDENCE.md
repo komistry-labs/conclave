@@ -3,11 +3,13 @@
 ## Status
 
 **Protocol frozen for implementation.** At the time of freeze, implementation
-had not begun. Increments 19A, 19B and 19C were subsequently authorized and
+had not begun. Increments 19A through 19D were subsequently authorized and
 implemented as separate bounded changes; see
 `INCREMENT-19A-VERIFICATION-FOUNDATION.md` and
 `INCREMENT-19B-EVIDENCE-IMPORT.md`, and
-`INCREMENT-19C-GATED-WORKFLOWS.md`. Stage 19D has not begun.
+`INCREMENT-19C-GATED-WORKFLOWS.md`, and
+`INCREMENT-19D-BROKER-CONFORMANCE.md`. Increment 19 is complete within its
+frozen, non-production boundary.
 
 This increment changes CONCLAVE only. KOS and IDM remain external. The freeze
 authorizes this protocol record and implementation preflight only. Runtime or
