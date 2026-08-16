@@ -1,0 +1,14 @@
+{
+  "package": "idm-reference",
+  "version": "0.1.0.dev0",
+  "import_name": "idm",
+  "commit": "3769ce3943c87e6a5a72bf94b0efdaa2b11c3bd2",
+  "tree": "425f650696a798c10f2a553781fee45e0950dc2a",
+  "wheel": {
+    "filename": "idm_reference-0.1.0.dev0-py3-none-any.whl",
+    "sha256": "07120effab0182701e47449e572b94e5a952c210aebfdf217fd965696154d903"
+  },
+  "source_archive_sha256": "98335d16dd0dd7bdfeb27fa77374e741e575cec3bbafc009a66c80374188efb7",
+  "provisioning": "external-hash-verified",
+  "classification": "verification-dependency-pin-not-a-trust-anchor"
+}
