@@ -38,12 +38,14 @@ import yaml
 from .council import CouncilReview, verify_council_content_hash
 from .context import read_context_bundle
 from .contextrelay import context_relay_dir, read_context_relay_export
+from .concurrency import read_batch
 from .errors import LedgerError
 from .execution import read_run_record
 from .handoff import HandoffPacket, verify_handoff_content_hash
 from .hashing import hash_file
 from .ledger import append_event, exists, read_events, verify
 from .models import TaskPacket
+from .orchestration import read_orchestration
 from .routing import read_route_plan
 from .scope import ScopeReview, verify_review_content_hash
 from .taskpacket import list_tasks, list_versions, packet_path, read_packet, verify_content_hash
@@ -65,6 +67,8 @@ SUPPORTED_EVENTS = (
     "route_plan_created",
     "provider_run_captured",
     "context_relay_prompt_exported",
+    "execution_batch_recorded",
+    "orchestration_recorded",
 )
 
 
@@ -261,6 +265,71 @@ def _provider_runs(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
                 "status": record.status,
                 "egress_authority": record.egress_authority,
                 "egress_decision_ref": record.egress_decision_ref,
+            },
+            occurred_at=record.completed_at,
+            identifying_hash=record.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
+def _execution_batches(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.batches_dir.glob("*.yaml")):
+        try:
+            record = read_batch(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable execution batch: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="execution_batch_recorded",
+            actor="conclave", authority_level="system",
+            subject_refs=[record.packet_ref],
+            artifact_hashes={
+                "execution_batch": record.content_hash,
+                "route_plan": record.route_plan_hash,
+                "context_bundle": record.context_bundle_hash,
+                "task_packet": record.task_packet_hash,
+            },
+            payload={
+                "batch_id": record.batch_id, "status": record.status,
+                "stage_indices": list(record.stage_indices),
+                "usage_complete": record.usage_complete,
+            },
+            occurred_at=record.started_at,
+            identifying_hash=record.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
+def _orchestrations(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.orchestrations_dir.glob("*.yaml")):
+        try:
+            record = read_orchestration(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable orchestration record: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="orchestration_recorded",
+            actor="conclave", authority_level="system",
+            subject_refs=[record.packet_ref, record.council_review_id],
+            artifact_hashes={
+                "orchestration": record.content_hash,
+                "execution_batch": record.execution_batch_hash,
+                "council_review": record.council_review_hash,
+                "route_plan": record.route_plan_hash,
+                "task_packet": record.task_packet_hash,
+            },
+            payload={
+                "orchestration_id": record.orchestration_id,
+                "pause_state": record.pause_state,
+                "action_execution_allowed": False,
             },
             occurred_at=record.completed_at,
             identifying_hash=record.content_hash,
@@ -504,6 +573,8 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _route_plans,
         _context_relay_exports,
         _provider_runs,
+        _execution_batches,
+        _orchestrations,
         _relay_exports,
         _handoffs,
         _scope_reviews,

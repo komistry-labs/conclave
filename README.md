@@ -1,4 +1,4 @@
-# CONCLAVE v0.3.0
+# CONCLAVE v0.6.0
 
 A local command-line tool for coordinating several AI providers on Komistry OS
 work through manual relay or explicitly authorized live adapters, with an
@@ -37,10 +37,9 @@ operator-supplied source manifests rather than silently traversing KOS.
 
 Requires Python 3.10 or newer.
 
-Bootstrap 0.1 was developed and tested on **Python 3.10.12**. It has not been
-executed on 3.11, 3.12 or later. Nothing in the code targets a version-specific
-feature, but "untested" is not "known to work" — run `python -m pytest` once on
-your own interpreter before relying on it.
+The current increment is verified on **Windows with Python 3.12**. The v0.3.0
+baseline was also verified on Debian/Linux with Python 3.13. Run the suite on
+each deployment platform before relying on a new release candidate.
 
 ```powershell
 cd conclave
@@ -77,7 +76,9 @@ conclave --help
 ├── ledger/ledger.jsonl      hash-chained event ledger
 ├── context/                 sealed provider context bundles
 ├── routes/                  sealed stage and token-budget plans
-└── runs/                    normalized, immutable provider runs
+├── runs/                    normalized, immutable provider runs
+├── batches/                 sealed concurrent-wave records
+└── orchestrations/          immutable batch-to-Council pause checkpoints
 ```
 
 ---
@@ -109,6 +110,34 @@ conclave scope review
 conclave council review TP-draft-ra-001-part-i-<hash>
 conclave ledger verify
 ```
+
+For an explicitly authorised live independent-review wave, supply one model,
+prompt file, and input estimate per stage:
+
+```powershell
+conclave run concurrent-live `
+  --context .conclave/context/<bundle>.yaml `
+  --route .conclave/routes/<route>.yaml `
+  --egress-decision D7-egress.yaml `
+  --model 0:gpt-model --model 1:claude-model --model 2:gemini-model `
+  --prompt 0:lead.txt --prompt 1:critic.txt --prompt 2:verify.txt `
+  --estimated-input 0:1200 --estimated-input 1:1200 --estimated-input 2:1200 `
+  --max-workers 3 --max-attempts 1
+```
+
+Lead, critic, and verifier remain isolated and may overlap. A synthesizer is
+never admitted to the concurrent wave and continues through the sequential
+stage command after all predecessor runs are complete.
+
+After a completed batch:
+
+```powershell
+conclave orchestrate batch .conclave/batches/<execution-batch>.yaml
+```
+
+This validates every response before downstream writes, creates Handoff and
+Scope artifacts, assembles the Council Review, and stops at an explicit pause.
+It does not record Arthur's decision or execute any authorised action.
 
 Scope flags: `-t` target (may be changed) · `-r` read-only (may be read and
 cited) · `-x` prohibited (must not be touched at all). Object references take
@@ -225,7 +254,7 @@ Relay prompt  ──paste──►  provider  ──reply──►  Raw Provider
                                                 Council Review
                                                        │
                                                        ▼
-                                          human decision (not yet implemented)
+                                          Authority Decision Record
                                                        │
                                                        ▼
                                                 Task Packet v2
@@ -247,6 +276,7 @@ Every canonical artifact is written once and never edited.
 | Handoff Packet | sealed at import; refuses to write with a stale hash |
 | Scope Review | one attestation per (handoff, schema); re-running verifies, never recomputes |
 | Council Review | id derived from its source set; a changed set is a new review |
+| Authority Decision | one write-once record per exact Council Review; review remains unchanged |
 | Context relay export | stage-bound prompt plus sealed content-addressed manifest |
 | Ledger | append-only, hash-chained, never rewritten or truncated |
 
@@ -273,6 +303,12 @@ disk runs through re-sealing.
   decision even by accident.
 - The Council Review schema is closed: a tampered file carrying `approved` or
   `merge_authorised` fails to load.
+- A human decision is recorded in a **separate** sealed artifact bound to the
+  exact Council Review and Task Packet hashes. `approve` is refused unless the
+  review is `ready_for_human_review`.
+- Recording requires an initialised, healthy ledger and interactive entry of
+  the exact configured workspace principal. This is explicitly local operator
+  confirmation, not cryptographic identity proof.
 - In the ledger, `advisory_agent` may only be the actor for the three
   submission events. Any other combination is refused at append and flagged at
   verification.
@@ -305,7 +341,7 @@ is generated naming only the defects and the authoritative identifiers — taken
 from CONCLAVE's export record, not from the rejected reply, so a provider is
 never told to repeat its own mistake. No Handoff Packet is created.
 
-**Ledger append fails after an artifact is written.** The artifact is kept.
+**An operational ledger append fails after an artifact is written.** The artifact is kept.
 Re-running the original command will not help — creation is refused because
 the artifact already exists. Instead:
 
@@ -313,6 +349,12 @@ the artifact already exists. Instead:
 conclave ledger verify      # find and fix the chain damage
 conclave ledger reconcile   # append the missing events
 ```
+
+Human decisions are the deliberate exception: reconciliation never infers
+them. If their ledger append fails, verify the ledger and rerun the exact
+`council record-decision` command; the principal must reconfirm, after which
+the event append is retried idempotently and the decision artifact is not
+rewritten.
 
 **Ledger damaged.** `verify` reports every defect and repairs nothing. Appends
 refuse while the chain is broken, so corruption never gains the appearance of
@@ -322,9 +364,8 @@ continuity.
 
 ## Ledger
 
-An audit chain of governed events, not a decision table. A decision-only
-ledger would stay empty through the whole workflow; here a human decision will
-later attach to a verifiable chain of evidence.
+An audit chain of governed events, not a decision table. A human decision
+attaches to the verifiable chain of evidence that produced its Council Review.
 
 ```powershell
 conclave ledger init        # genesis + snapshot of pre-existing artifacts
@@ -359,7 +400,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 689 tests
+python -m pytest                  # 731 tests
 ```
 
 `validate` separates its findings by category because they have different
@@ -373,15 +414,15 @@ is an authority-boundary breach and is not for an agent to resolve.**
 Known and deliberate:
 
 - No GitHub or pull-request automation.
-- No human decision recording — the decision block exists and stays pending.
-  This is the next reviewed increment; it changes the authority model and was
-  held back until the advisory runtime had a verified baseline.
+- Human identity confirmation is local and single-operator, not cryptographic
+  or multi-custodian. IDM-backed signing is a future increment.
 - No trust or calibration tracking.
 - No semantic comparison of provider prose.
 - Undeclared object use is not detected; only declarations are evaluated.
 - `conclave validate` covers Task Packets only.
 - Ledger events are wired at the CLI boundary, so calling the library directly
-  records nothing. `ledger reconcile` is the remedy.
+  records nothing for operational artifacts. Authority decision recording is
+  the exception: its library operation also appends the required event.
 - Single-operator design. The ledger lock guards concurrent local writers, but
   nothing coordinates multiple machines.
 
@@ -395,6 +436,7 @@ src/conclave/
 ├── workspace.py    layout, config, discovery
 ├── models.py       Task Packet, ObjectRef, provider assignment, egress
 ├── taskpacket.py   identity, sealing, write-once storage
+├── decision.py     principal instruction, hash binding, write-once decision record
 ├── validation.py   schema / semantic / governance
 ├── relay.py        prompt projection and export provenance
 ├── contextrelay.py sealed Context Bundle manual-relay projection
@@ -404,6 +446,8 @@ src/conclave/
 ├── ledger.py       hash-chained event ledger
 ├── reconcile.py    deterministic gap closure
 ├── routing.py      provider roles, route stages, and token ceilings
+├── concurrency.py  bounded independent waves, retries, cancellation, batch evidence
+├── orchestration.py batch-to-Handoff/Scope/Council projection and pause state
 ├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
 └── cli.py          command surface
 ```

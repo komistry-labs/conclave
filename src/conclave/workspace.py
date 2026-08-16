@@ -21,7 +21,7 @@ from .errors import WorkspaceError
 
 WORKSPACE_DIRNAME = ".conclave"
 CONFIG_FILENAME = "config.yaml"
-BOOTSTRAP_VERSION = "0.3.0"
+BOOTSTRAP_VERSION = "0.6.0"
 
 SUBDIRS = (
     "tasks",
@@ -29,8 +29,11 @@ SUBDIRS = (
     "relay/inbox",
     "scope",
     "council",
+    "decisions",
     "ledger",
     "runs",
+    "batches",
+    "orchestrations",
     "context",
     "routes",
 )
@@ -70,6 +73,10 @@ class Workspace:
         return self.root / "council"
 
     @property
+    def decisions_dir(self) -> Path:
+        return self.root / "decisions"
+
+    @property
     def ledger_dir(self) -> Path:
         return self.root / "ledger"
 
@@ -80,6 +87,14 @@ class Workspace:
     @property
     def runs_dir(self) -> Path:
         return self.root / "runs"
+
+    @property
+    def batches_dir(self) -> Path:
+        return self.root / "batches"
+
+    @property
+    def orchestrations_dir(self) -> Path:
+        return self.root / "orchestrations"
 
     @property
     def context_dir(self) -> Path:

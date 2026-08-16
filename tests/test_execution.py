@@ -173,6 +173,20 @@ def test_tampered_run_rejected(artifacts):
         })
 
 
+def test_request_context_hash_must_match_run_record(artifacts):
+    _, packet, bundle, plan = artifacts
+    record = execute_stage(
+        packet=packet, bundle=bundle, plan=plan, stage_index=0,
+        adapter=FixtureAdapter(provider="adrian"),
+        decision=decision(bundle), model="fixture-model",
+        prompt="work", estimated_input_tokens=1,
+    )
+    data = record.model_dump(mode="json")
+    data["request"]["context_bundle_hash"] = "sha256:" + "0" * 64
+    with pytest.raises(ValidationError, match="Context Bundle hashes differ"):
+        type(record).model_validate(data)
+
+
 def test_context_packet_hash_mismatch_prevents_adapter_call(artifacts):
     _, packet, bundle, plan = artifacts
 

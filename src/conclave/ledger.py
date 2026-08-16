@@ -2,9 +2,9 @@
 
 An audit chain of governed events, not a decision table. A decision-only
 ledger would stay empty through the whole workflow and offer no integrity
-trail for how the decision surface was produced. Here, a human decision will
-later attach to a verifiable chain of evidence rather than starting a fresh
-record at the end.
+trail for how the decision surface was produced. Here, a human decision
+attaches to a verifiable chain of evidence rather than starting a fresh record
+at the end.
 
 WHAT A LEDGER ENTRY MEANS
 
@@ -65,17 +65,20 @@ EVENT_TYPES = (
     "provider_response_rejected",
     "scope_review_created",
     "council_review_created",
+    "human_decision_recorded",
     "integrity_failure_detected",
     "operation_refused",
     "context_bundle_created",
     "route_plan_created",
     "provider_run_captured",
+    "execution_batch_recorded",
+    "orchestration_recorded",
     "context_relay_prompt_exported",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
 # nothing else claims these names; not emitted by any current code path.
-RESERVED_EVENT_TYPES = ("human_decision_recorded", "action_authorised")
+RESERVED_EVENT_TYPES = ("action_authorised",)
 
 ALL_EVENT_TYPES = frozenset(EVENT_TYPES) | frozenset(RESERVED_EVENT_TYPES)
 
@@ -85,6 +88,11 @@ ADVISORY_PERMITTED_EVENTS = frozenset({
     "provider_response_preserved",
     "handoff_packet_imported",
     "provider_response_rejected",
+})
+
+HUMAN_PRINCIPAL_EVENTS = frozenset({
+    "human_decision_recorded",
+    "action_authorised",
 })
 
 REQUIRED_FIELDS = (
@@ -299,6 +307,21 @@ def verify(ws: Workspace) -> VerificationReport:
                        f"an advisory agent cannot be the actor for "
                        f"{event.get('event_type')!r}; no advisory agent approves, ratifies, "
                        "commissions or merges anything", i)
+        if event.get("event_type") in HUMAN_PRINCIPAL_EVENTS and \
+                authority != "human_principal":
+            report.add("human-authority-required",
+                       f"{event.get('event_type')!r} requires authority_level "
+                       "'human_principal'", i)
+        if event.get("event_type") in HUMAN_PRINCIPAL_EVENTS and \
+                authority == "human_principal":
+            try:
+                configured_principal = ws.load_config().get("principal")
+            except Exception:
+                configured_principal = None
+            if not configured_principal or event.get("actor") != configured_principal:
+                report.add("wrong-human-principal",
+                           f"actor {event.get('actor')!r} is not the configured workspace "
+                           f"principal {configured_principal!r}", i)
 
     # -- genesis
     genesis_positions = [i for i, e in enumerate(events, start=1)
@@ -409,6 +432,17 @@ def append_event(
             f"an advisory agent cannot be the actor for {event_type!r}. "
             "No advisory agent approves, ratifies, commissions or merges anything."
         )
+    if event_type in HUMAN_PRINCIPAL_EVENTS and authority_level != "human_principal":
+        raise LedgerError(
+            f"{event_type!r} requires authority_level 'human_principal'"
+        )
+    if event_type in HUMAN_PRINCIPAL_EVENTS:
+        configured_principal = ws.load_config().get("principal")
+        if not configured_principal or actor != configured_principal:
+            raise LedgerError(
+                f"actor {actor!r} is not the configured workspace principal "
+                f"{configured_principal!r}"
+            )
     if event_type == GENESIS_EVENT and not allow_genesis:
         raise LedgerError("genesis is created by initialise(), not by append_event()")
 
@@ -485,9 +519,13 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("scope_reviews", "scope", "*.yaml", False),
     ("council_reviews", "council", "*.yaml", False),
     ("council_markdown", "council", "*.md", False),
+    ("authority_decisions", "decisions", "*.yaml", False),
+    ("authority_decision_markdown", "decisions", "*.md", False),
     ("context_bundles", "context", "*.yaml", False),
     ("route_plans", "routes", "*.yaml", False),
     ("provider_runs", "runs", "*.yaml", False),
+    ("execution_batches", "batches", "*.yaml", False),
+    ("orchestration_records", "orchestrations", "*.yaml", False),
 )
 
 

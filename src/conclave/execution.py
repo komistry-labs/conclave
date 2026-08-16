@@ -48,6 +48,8 @@ class RunRecord(BaseModel):
     def verify(self) -> "RunRecord":
         if self.role != self.request.role:
             raise ValidationError("run role and request role differ")
+        if self.context_bundle_hash != self.request.context_bundle_hash:
+            raise ValidationError("run and request Context Bundle hashes differ")
         if self.request.provider != self.response.provider:
             raise ValidationError("request and response provider differ")
         if self.request.model != self.response.model:
@@ -77,6 +79,28 @@ def execute_stage(
     prompt: str, estimated_input_tokens: int,
     prior_runs: list[RunRecord] | None = None,
 ) -> RunRecord:
+    return _execute_stage(
+        packet=packet, bundle=bundle, plan=plan, stage_index=stage_index,
+        adapter=adapter, decision=decision, model=model, prompt=prompt,
+        estimated_input_tokens=estimated_input_tokens, prior_runs=prior_runs,
+        enforce_predecessors=True, output_ceiling_override=None,
+    )
+
+
+def _execute_stage(
+    *, packet: TaskPacket, bundle: ContextBundle, plan: RoutePlan, stage_index: int,
+    adapter: ProviderAdapter, decision: EgressDecision, model: str,
+    prompt: str, estimated_input_tokens: int,
+    prior_runs: list[RunRecord] | None,
+    enforce_predecessors: bool,
+    output_ceiling_override: int | None,
+) -> RunRecord:
+    """Shared executor. Only the bounded concurrency engine disables ordering.
+
+    The public ``execute_stage`` path always enforces every predecessor. The
+    concurrency engine performs a wave-level predecessor and budget preflight,
+    then calls this private function with deterministic per-stage reservations.
+    """
     if not verify_content_hash(packet):
         raise ValidationError("Task Packet does not verify against its content_hash")
     if packet.ref != bundle.packet_ref or packet.ref != plan.packet_ref:
@@ -94,16 +118,17 @@ def execute_stage(
             f"provider {stage.provider!r}"
         )
     prior_runs = prior_runs or []
-    predecessor_counts = {
-        index: sum(run.stage_index == index for run in prior_runs)
-        for index in range(stage_index)
-    }
-    if set(run.stage_index for run in prior_runs) != set(range(stage_index)):
-        raise ValidationError(
-            "prior runs must contain every earlier route stage and no other stage"
-        )
-    if any(count != 1 for count in predecessor_counts.values()):
-        raise ValidationError("each earlier route stage must have exactly one prior run")
+    if enforce_predecessors:
+        predecessor_counts = {
+            index: sum(run.stage_index == index for run in prior_runs)
+            for index in range(stage_index)
+        }
+        if set(run.stage_index for run in prior_runs) != set(range(stage_index)):
+            raise ValidationError(
+                "prior runs must contain every earlier route stage and no other stage"
+            )
+        if any(count != 1 for count in predecessor_counts.values()):
+            raise ValidationError("each earlier route stage must have exactly one prior run")
     for prior in prior_runs:
         if prior.route_plan_hash != plan.content_hash:
             raise ValidationError("prior run belongs to a different Route Plan")
@@ -121,6 +146,10 @@ def execute_stage(
         stage.role, remaining_output
     )
     output_ceiling = min(stage_ceiling, remaining_output)
+    if output_ceiling_override is not None:
+        if output_ceiling_override <= 0 or output_ceiling_override > output_ceiling:
+            raise ValidationError("concurrent stage output reservation is invalid")
+        output_ceiling = output_ceiling_override
     governed_prompt = render_context_prompt(bundle, prompt)
     request = prepare_request(
         bundle=bundle, decision=decision, provider=stage.provider, model=model,
@@ -140,6 +169,12 @@ def execute_stage(
         defects.append(
             f"cumulative output {prior_output + response.usage.output_tokens} exceeds ceiling "
             f"{plan.budget.max_output_tokens}"
+        )
+    if response.usage.output_tokens > output_ceiling and \
+            prior_output + response.usage.output_tokens <= plan.budget.max_output_tokens:
+        defects.append(
+            f"actual output {response.usage.output_tokens} exceeds request reservation "
+            f"{output_ceiling}"
         )
     if response.usage.output_tokens > stage_ceiling and stage_ceiling < remaining_output:
         defects.append(

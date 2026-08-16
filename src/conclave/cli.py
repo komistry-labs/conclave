@@ -16,10 +16,13 @@ from . import __version__, ledger
 from .council import review_task
 from .context import ContextSource, build_context_bundle, write_context_bundle
 from .contextrelay import write_context_relay_export
+from .concurrency import RetryPolicy, execute_concurrent, write_concurrent_outcome
+from .decision import prepare_decision, read_instruction, record_decision
 from .errors import ConclaveError
 from .execution import execute_stage, read_run_record, write_run_record
 from .handoff import import_response
 from .models import SCHEMA_VERSION
+from .orchestration import orchestrate_batch
 from .reconcile import reconcile
 from .relay import export_prompts
 from .providers import EgressDecision, FixtureAdapter, read_egress_decision
@@ -75,6 +78,9 @@ route_app = typer.Typer(
 run_app = typer.Typer(
     help="Execute one authorized route stage and preserve its normalized response.",
     no_args_is_help=True)
+orchestrate_app = typer.Typer(
+    help="Advance sealed execution evidence to a Council Review and explicit pause.",
+    no_args_is_help=True)
 
 app.add_typer(task_app, name="task")
 app.add_typer(relay_app, name="relay")
@@ -84,6 +90,7 @@ app.add_typer(ledger_app, name="ledger")
 app.add_typer(context_app, name="context")
 app.add_typer(route_app, name="route")
 app.add_typer(run_app, name="run")
+app.add_typer(orchestrate_app, name="orchestrate")
 
 
 def _fail(msg: str) -> None:
@@ -389,6 +396,181 @@ def run_live(
         )
 
 
+def _indexed_values(values: list[str], *, label: str) -> dict[int, str]:
+    parsed: dict[int, str] = {}
+    for value in values:
+        try:
+            index_text, item = value.split(":", 1)
+            index = int(index_text)
+        except (ValueError, TypeError) as exc:
+            raise ConclaveError(f"{label} must use STAGE:VALUE, got {value!r}") from exc
+        if index < 0 or not item:
+            raise ConclaveError(f"{label} must use a non-negative stage and non-empty value")
+        if index in parsed:
+            raise ConclaveError(f"{label} repeats stage {index}")
+        parsed[index] = item
+    return parsed
+
+
+@run_app.command("concurrent-live")
+def run_concurrent_live(
+    context_file: Path = typer.Option(..., "--context"),
+    route_file: Path = typer.Option(..., "--route"),
+    egress_decision_file: Path = typer.Option(..., "--egress-decision"),
+    stage_indices: list[int] = typer.Option(
+        [], "--stage", min=0,
+        help="Repeat stage index. Default: the first independent wave."),
+    model_specs: list[str] = typer.Option(
+        ..., "--model", help="Repeat STAGE:MODEL."),
+    prompt_specs: list[str] = typer.Option(
+        ..., "--prompt", help="Repeat STAGE:FILE."),
+    estimate_specs: list[str] = typer.Option(
+        ..., "--estimated-input", help="Repeat STAGE:TOKENS."),
+    max_workers: int = typer.Option(3, "--max-workers", min=1, max=8),
+    max_attempts: int = typer.Option(1, "--max-attempts", min=1, max=3),
+    fail_fast: bool = typer.Option(False, "--fail-fast"),
+    timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+) -> None:
+    """EXECUTE an isolated lead/critic/verifier wave concurrently.
+
+    A synthesizer is never admitted. Failed provider attempts may have unknown
+    billable usage; the batch record states when token totals are incomplete.
+    """
+    from .context import read_context_bundle
+    from .live_providers import ClaudeAdapter, GeminiAdapter, OpenAIAdapter
+    from .routing import read_route_plan
+
+    ws, config = _ws()
+    try:
+        bundle = read_context_bundle(context_file)
+        plan = read_route_plan(route_file)
+        task_id, version_text = bundle.packet_ref.rsplit("@v", 1)
+        packet = read_packet(ws, task_id, int(version_text))
+        decision = read_egress_decision(
+            egress_decision_file, principal=config.get("principal", "")
+        )
+        if stage_indices:
+            indices = tuple(sorted(stage_indices))
+        else:
+            indices = tuple(
+                index for index, stage in enumerate(plan.stages)
+                if stage.independent and stage.role != "synthesizer"
+            )
+        models = _indexed_values(model_specs, label="--model")
+        prompt_paths = _indexed_values(prompt_specs, label="--prompt")
+        estimate_text = _indexed_values(estimate_specs, label="--estimated-input")
+        try:
+            estimates = {index: int(value) for index, value in estimate_text.items()}
+        except ValueError as exc:
+            raise ConclaveError("--estimated-input values must be integers") from exc
+        prompts = {
+            index: Path(path).read_text(encoding="utf-8")
+            for index, path in prompt_paths.items()
+        }
+        existing_selected = sorted({
+            run.stage_index
+            for run in (
+                read_run_record(path) for path in ws.runs_dir.glob("*.yaml")
+            )
+            if run.route_plan_hash == plan.content_hash
+            and run.stage_index in indices
+        })
+        if existing_selected:
+            raise ConclaveError(
+                "refusing duplicate provider calls: this Route Plan already has "
+                f"captured runs for selected stages {existing_selected}"
+            )
+        adapters = {}
+        for index in indices:
+            stage = plan.stages[index]
+            if stage.provider in {"adrian", "openai"}:
+                adapters[index] = OpenAIAdapter(
+                    provider=stage.provider, timeout_seconds=timeout_seconds
+                )
+            elif stage.provider == "claude":
+                adapters[index] = ClaudeAdapter(timeout_seconds=timeout_seconds)
+            elif stage.provider == "gemini":
+                adapters[index] = GeminiAdapter(timeout_seconds=timeout_seconds)
+            else:
+                raise ConclaveError(
+                    f"no live adapter is registered for provider {stage.provider!r}"
+                )
+        prior_runs = tuple(
+            sorted(
+                (
+                    run for run in (
+                        read_run_record(path) for path in ws.runs_dir.glob("*.yaml")
+                    )
+                    if run.route_plan_hash == plan.content_hash
+                    and run.stage_index < indices[0]
+                ),
+                key=lambda run: run.stage_index,
+            )
+        )
+        outcome = execute_concurrent(
+            packet=packet, bundle=bundle, plan=plan, stage_indices=indices,
+            adapters=adapters, decisions={index: decision for index in indices},
+            models=models, prompts=prompts, estimated_input_tokens=estimates,
+            prior_runs=prior_runs, max_workers=max_workers,
+            retry_policy=RetryPolicy(max_attempts=max_attempts), fail_fast=fail_fast,
+        )
+        stored = write_concurrent_outcome(ws, outcome)
+    except (ConclaveError, OSError, IndexError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+
+    for run, (path, created) in zip(outcome.runs, stored.run_paths):
+        if created:
+            _record(
+                ws, event_type="provider_run_captured", actor="conclave",
+                authority_level="system", subject_refs=[run.packet_ref],
+                artifact_hashes={"provider_run": run.content_hash},
+                payload={
+                    "source_artifact": path.relative_to(ws.root).as_posix(),
+                    "provider": run.response.provider, "role": run.role,
+                    "status": run.status, "egress_decision_ref": run.egress_decision_ref,
+                    "execution_mode": "concurrent-independent-wave",
+                },
+            )
+    if stored.batch_created:
+        _record(
+            ws, event_type="execution_batch_recorded", actor="conclave",
+            authority_level="system", subject_refs=[outcome.record.packet_ref],
+            artifact_hashes={
+                "execution_batch": outcome.record.content_hash,
+                "route_plan": outcome.record.route_plan_hash,
+                "context_bundle": outcome.record.context_bundle_hash,
+                "task_packet": outcome.record.task_packet_hash,
+            },
+            payload={
+                "source_artifact": stored.batch_path.relative_to(ws.root).as_posix(),
+                "batch_id": outcome.record.batch_id,
+                "status": outcome.record.status,
+                "stage_indices": list(outcome.record.stage_indices),
+                "usage_complete": outcome.record.usage_complete,
+            },
+        )
+
+    typer.secho(
+        f"CONCURRENT WAVE {outcome.record.status.upper()}",
+        fg=(typer.colors.GREEN if outcome.record.status == "completed"
+            else typer.colors.YELLOW), bold=True,
+    )
+    for result in outcome.record.stage_results:
+        typer.echo(
+            f"  stage {result.stage_index} {result.provider}:{result.role} "
+            f"{result.status} attempts={result.attempts}"
+        )
+    typer.echo(
+        f"  tokens: input={outcome.record.wave_input_tokens} "
+        f"output={outcome.record.wave_output_tokens} "
+        f"usage_complete={str(outcome.record.usage_complete).lower()}"
+    )
+    typer.echo(f"  batch: {stored.batch_path}")
+    if outcome.record.status != "completed":
+        raise typer.Exit(code=1)
+
+
 @run_app.command("handoff")
 def run_handoff(
     run_file: Path = typer.Argument(..., help="Sealed Provider Run YAML."),
@@ -465,6 +647,138 @@ def run_handoff(
                             "not itself authorise remediation",
                 },
             )
+
+
+@orchestrate_app.command("batch")
+def orchestrate_batch_command(
+    batch_file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False, help="Sealed Execution Batch YAML."),
+) -> None:
+    """PROJECT a completed batch through Handoff, Scope, and Council stages."""
+    ws, _ = _ws()
+    try:
+        outcome = orchestrate_batch(ws, batch_file)
+    except (ConclaveError, OSError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+
+    for conversion, scope in zip(outcome.conversions, outcome.scopes):
+        packet = conversion.packet
+        if conversion.created:
+            _record(
+                ws, event_type="provider_response_preserved",
+                actor=packet.provider, authority_level="advisory_agent",
+                artifact_hashes={"raw_response": packet.raw_response_hash},
+                payload={
+                    "raw_file": conversion.raw_path.name,
+                    "source_run": next(
+                        stage.run_file for stage in outcome.record.processed_stages
+                        if stage.handoff_content_hash == packet.content_hash
+                    ),
+                    "note": "normalized provider response text captured by sealed Run Record",
+                },
+            )
+            _record(
+                ws, event_type="handoff_packet_imported",
+                actor=packet.provider, authority_level="advisory_agent",
+                subject_refs=[packet.packet_ref],
+                artifact_hashes={
+                    "handoff_packet": packet.content_hash,
+                    "raw_response": packet.raw_response_hash,
+                    "prompt": packet.prompt_hash,
+                    "provider_run": packet.run_record_hash,
+                },
+                payload={
+                    "provider": packet.provider, "role": packet.role,
+                    "submission_status": packet.status,
+                    "recommended_next_action": packet.recommended_next_action,
+                    "declared_objects_touched": sorted(packet.touched_keys()),
+                    "handoff_file": conversion.handoff_path.name,
+                    "source_run": next(
+                        stage.run_file for stage in outcome.record.processed_stages
+                        if stage.handoff_content_hash == packet.content_hash
+                    ),
+                    "note": "projected from a verified completed Provider Run",
+                },
+            )
+        if scope.created:
+            review = scope.review
+            _record(
+                ws, event_type="scope_review_created",
+                subject_refs=[review.task_packet_ref],
+                artifact_hashes={
+                    "scope_review": review.content_hash,
+                    "handoff_packet": review.handoff_packet_hash,
+                    "task_packet": review.task_packet_hash,
+                },
+                payload={
+                    "provider": review.provider,
+                    "evaluator_schema": review.schema_version,
+                    "scope_status": review.scope_status,
+                    "violation_count": review.violation_count,
+                    "source_artifact": scope.path.relative_to(ws.root).as_posix(),
+                    "note": "an evaluator result under the named schema; it does not "
+                            "itself authorise remediation",
+                },
+            )
+
+    council = outcome.council.review
+    if outcome.council.created:
+        _record(
+            ws, event_type="council_review_created",
+            subject_refs=[council.task_packet_ref, council.council_review_id],
+            artifact_hashes={
+                "council_review": council.content_hash,
+                "task_packet": council.task_packet_hash,
+                **({"route_plan": council.route_plan_hash}
+                   if council.route_plan_hash else {}),
+            },
+            payload={
+                "council_review_id": council.council_review_id,
+                "review_status": council.review_status,
+                "submission_count": len(council.submissions),
+                "missing_providers": council.missing_providers,
+                "governance_alert_count": len(council.governance_alerts),
+                "selection_basis": council.selection_basis,
+                "yaml_file": outcome.council.yaml_path.name,
+                "markdown_file": outcome.council.markdown_path.name,
+                "note": "a review artifact was produced; this asserts nothing about "
+                        "whether its recommendations were accepted",
+            },
+        )
+    if outcome.created:
+        _record(
+            ws, event_type="orchestration_recorded",
+            subject_refs=[outcome.record.packet_ref, outcome.record.council_review_id],
+            artifact_hashes={
+                "orchestration": outcome.record.content_hash,
+                "execution_batch": outcome.record.execution_batch_hash,
+                "council_review": outcome.record.council_review_hash,
+                "route_plan": outcome.record.route_plan_hash,
+                "task_packet": outcome.record.task_packet_hash,
+            },
+            payload={
+                "source_artifact": outcome.path.relative_to(ws.root).as_posix(),
+                "orchestration_id": outcome.record.orchestration_id,
+                "pause_state": outcome.record.pause_state,
+                "action_execution_allowed": False,
+            },
+        )
+
+    colour = (
+        typer.colors.GREEN
+        if outcome.record.pause_state == "awaiting_human_decision"
+        else typer.colors.YELLOW
+    )
+    typer.secho(
+        f"ORCHESTRATION PAUSED: {outcome.record.pause_state.upper()}",
+        fg=colour, bold=True,
+    )
+    typer.echo(f"  stages processed : {len(outcome.record.processed_stages)}")
+    typer.echo(f"  council status   : {outcome.record.council_review_status}")
+    typer.echo(f"  council review   : {outcome.council.yaml_path}")
+    typer.echo(f"  record           : {outcome.path}")
+    typer.echo("  action execution : not authorised")
 
 
 # -- init / status ---------------------------------------------------------
@@ -1214,6 +1528,80 @@ def council_review(
                 fg=typer.colors.BRIGHT_BLACK)
     typer.secho("  CONCLAVE has not approved, ratified, commissioned or merged anything.",
                 fg=typer.colors.BRIGHT_BLACK)
+
+
+@council_app.command("record-decision")
+def council_record_decision(
+    instruction_file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False,
+        help="Strict principal-authored authority-decision instruction YAML."),
+) -> None:
+    """RECORD a human decision as a separate immutable, hash-bound artifact.
+
+    Requires an initialised, healthy ledger and exact entry of the configured
+    workspace principal. There is deliberately no non-interactive bypass.
+    """
+    ws, config = _ws()
+    try:
+        instruction = read_instruction(instruction_file)
+        candidate = prepare_decision(ws, instruction)
+    except ConclaveError as exc:
+        _fail(str(exc))
+        return
+
+    principal = config.get("principal")
+    typer.secho("AUTHORITY DECISION CANDIDATE", bold=True)
+    typer.echo(f"  council review : {candidate.council_review_id}")
+    typer.echo(f"  review hash    : {candidate.council_review_hash}")
+    typer.echo(f"  task packet    : {candidate.task_packet_ref}")
+    typer.echo(f"  decision       : {candidate.decision}")
+    typer.echo(f"  decided by     : {candidate.decided_by}")
+    typer.echo(f"  actions        : {len(candidate.authorised_actions)}")
+    typer.echo(f"  candidate hash : {candidate.content_hash}")
+    typer.echo("")
+    typer.secho(
+        "This confirmation is a local operator ceremony, not cryptographic "
+        "identity proof.", fg=typer.colors.YELLOW
+    )
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to record this decision"
+    )
+
+    try:
+        outcome = record_decision(
+            ws, instruction, confirmed_principal=confirmation, prepared=candidate
+        )
+    except ConclaveError as exc:
+        # If the artifact was written but the ledger append failed, it is kept.
+        # Re-running this command and reconfirming retries the idempotent event.
+        existing = list(ws.decisions_dir.glob("*.yaml")) if ws.decisions_dir.exists() else []
+        if existing:
+            typer.secho(
+                "DECISION ARTIFACT MAY BE PRESERVED; LEDGER RECORDING DID NOT COMPLETE.",
+                fg=typer.colors.RED, bold=True,
+            )
+            typer.echo(f"  {exc}")
+            typer.secho(
+                "  Verify the ledger, then rerun this exact command and reconfirm.",
+                fg=typer.colors.YELLOW,
+            )
+            raise typer.Exit(code=1)
+        _fail(str(exc))
+        return
+
+    typer.secho(
+        "DECISION RECORDED" if outcome.created else "DECISION ALREADY RECORDED",
+        fg=typer.colors.GREEN, bold=True,
+    )
+    typer.echo(f"  decision id : {outcome.record.decision_id}")
+    typer.echo(f"  content hash: {outcome.record.content_hash}")
+    typer.echo(f"  yaml        : {outcome.yaml_path}")
+    typer.echo(f"  markdown    : {outcome.markdown_path}")
+    typer.echo("")
+    typer.secho(
+        "The Council Review remains immutable with decision: pending; this separate "
+        "record is authoritative.", fg=typer.colors.BRIGHT_BLACK,
+    )
 
 
 @ledger_app.command("init")
