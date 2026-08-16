@@ -17,6 +17,8 @@ accepted hashes:
   `07120effab0182701e47449e572b94e5a952c210aebfdf217fd965696154d903`;
 - source `idm-3769ce3-source.zip`:
   `98335d16dd0dd7bdfeb27fa77374e741e575cec3bbafc009a66c80374188efb7`;
+- repository-normalized dependency lock:
+  `2cca9794ee1422f95c94a7349e743787f8f385b44c69fbcc4a3b4e3c883901e5`;
 - IDM commit `3769ce3943c87e6a5a72bf94b0efdaa2b11c3bd2`, tree
   `425f650696a798c10f2a553781fee45e0950dc2a`.
 

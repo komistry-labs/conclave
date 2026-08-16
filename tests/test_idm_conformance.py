@@ -63,6 +63,7 @@ ROOT = Path(__file__).parents[1]
 BASELINE = ROOT / "tests" / "fixtures" / "idm-baseline"
 WHEEL = BASELINE / "idm_reference-0.1.0.dev0-py3-none-any.whl"
 SOURCE = BASELINE / "idm-3769ce3-source.zip"
+LOCK = BASELINE / "requirements.lock"
 BROKER = ROOT / "tests" / "fixtures" / "idm_fixture_broker.py"
 
 T0 = "2026-08-16T10:00:00Z"
@@ -278,6 +279,9 @@ def test_retained_distribution_hashes_are_exact():
     )
     assert hashlib.sha256(SOURCE.read_bytes()).hexdigest() == (
         "98335d16dd0dd7bdfeb27fa77374e741e575cec3bbafc009a66c80374188efb7"
+    )
+    assert hashlib.sha256(LOCK.read_bytes()).hexdigest() == (
+        "2cca9794ee1422f95c94a7349e743787f8f385b44c69fbcc4a3b4e3c883901e5"
     )
 
 
