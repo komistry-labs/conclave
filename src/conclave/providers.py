@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -11,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .context import Classification, ContextBundle
 from .errors import ValidationError
+from .identity import sha256_bytes
+from .workspace import Workspace
 
 EGRESS_SCHEMA_VERSION = "egress-decision/0.1.0"
 
@@ -26,6 +29,16 @@ class EgressPolicy(BaseModel):
     classifications: frozenset[Classification] = frozenset()
     authority: str = Field(min_length=1)
     decision_ref: str = Field(min_length=1)
+
+
+def egress_policy_hash(policy: EgressPolicy) -> str:
+    payload = json.dumps(
+        policy.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return sha256_bytes(payload)
 
 
 class EgressDecision(BaseModel):
@@ -52,7 +65,14 @@ class EgressDecision(BaseModel):
             )
 
 
-def read_egress_decision(path: Path, *, principal: str) -> EgressDecision:
+def read_egress_decision(
+    path: Path,
+    *,
+    principal: str,
+    workspace: Workspace | None = None,
+    identity_verification_reference: str | None = None,
+    signed_evidence_binding_reference: str | None = None,
+) -> EgressDecision:
     """Read an explicit egress policy and bind it to the workspace principal."""
     if not path.exists():
         raise ValidationError(f"no egress decision at {path}")
@@ -71,6 +91,18 @@ def read_egress_decision(path: Path, *, principal: str) -> EgressDecision:
         )
     if not policy.allowed:
         raise ValidationError("egress decision does not permit live provider calls")
+    if workspace is not None:
+        from .gating import enforce_principal_gate
+
+        enforce_principal_gate(
+            workspace,
+            operation="egress_decision",
+            actor_id=policy.authority,
+            target_reference=policy.decision_ref,
+            target_hash=egress_policy_hash(policy),
+            identity_verification_reference=identity_verification_reference,
+            signed_evidence_binding_reference=signed_evidence_binding_reference,
+        )
     return EgressDecision(
         allowed=policy.allowed,
         transports=policy.transports,

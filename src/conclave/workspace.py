@@ -237,6 +237,7 @@ class Workspace:
                 "algorithm": "sha256",
                 "canonicalisation": "kos-canonical-text-v1",
             },
+            "identity": {"mode": "local"},
         }
 
         ws.config_path.write_bytes(

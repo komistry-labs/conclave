@@ -79,6 +79,9 @@ EVENT_TYPES = (
     "evidence_envelope_preserved",
     "signed_evidence_binding_recorded",
     "evidence_conflict_observed",
+    "actor_identity_binding_imported",
+    "evidence_receipt_recorded",
+    "signed_ledger_checkpoint_recorded",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -98,6 +101,8 @@ ADVISORY_PERMITTED_EVENTS = frozenset({
 HUMAN_PRINCIPAL_EVENTS = frozenset({
     "human_decision_recorded",
     "action_authorised",
+    "evidence_receipt_recorded",
+    "signed_ledger_checkpoint_recorded",
 })
 
 REQUIRED_FIELDS = (
@@ -534,6 +539,7 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("evidence_signing_requests", "signing/requests", "*.json", False),
     ("evidence_envelopes", "signing/envelopes", "*.cose", True),
     ("signed_evidence_bindings", "signing/bindings", "*.json", False),
+    ("ledger_checkpoints", "ledger", "checkpoint-*.json", False),
 )
 
 

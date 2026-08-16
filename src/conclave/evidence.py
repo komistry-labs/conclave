@@ -21,6 +21,7 @@ import yaml
 from pydantic import Field, field_validator, model_validator
 
 from .council import COUNCIL_SCHEMA_VERSION, CouncilReview, verify_council_content_hash
+from .checkpoint import CHECKPOINT_SCHEMA, LedgerCheckpoint
 from .errors import IntegrityError, ValidationError
 from .hashing import hash_bytes
 from .identity import (
@@ -44,6 +45,7 @@ from .ledger import (
     verify as verify_ledger,
 )
 from .models import TaskPacket
+from .providers import EGRESS_SCHEMA_VERSION, EgressPolicy, egress_policy_hash
 from .synthesis import SYNTHESIS_SCHEMA_VERSION, SynthesisContinuationRecord
 from .taskpacket import verify_content_hash
 from .workspace import Workspace
@@ -375,6 +377,45 @@ def _safe_stored_record(ws: Workspace, path: Path, allowed: Path, label: str) ->
 def resolve_stored_artifact(
     ws: Workspace, *, storage_reference: str, artifact_schema: str
 ) -> ResolvedArtifact:
+    if artifact_schema == EGRESS_SCHEMA_VERSION:
+        _path, raw = _safe_relative_artifact(ws, storage_reference, ws.decisions_dir)
+        try:
+            policy = EgressPolicy.model_validate(yaml.safe_load(raw.decode("utf-8")))
+        except Exception as exc:
+            raise ValidationError("stored artifact failed its native closed schema") from exc
+        if policy.schema_version != EGRESS_SCHEMA_VERSION:
+            raise ValidationError("stored egress decision schema is unsupported")
+        content_hash = egress_policy_hash(policy)
+        return ResolvedArtifact(
+            storage_reference=storage_reference,
+            reference=policy.decision_ref,
+            schema=artifact_schema,
+            content_hash=content_hash,
+            payload_hash=hash_bytes(raw),
+            provenance_chain=(ArtifactLink(
+                reference=policy.decision_ref,
+                schema_version=artifact_schema,
+                content_hash=content_hash,
+            ),),
+        )
+    if artifact_schema == CHECKPOINT_SCHEMA:
+        _path, raw = _safe_relative_artifact(ws, storage_reference, ws.ledger_dir)
+        try:
+            checkpoint = LedgerCheckpoint.model_validate_json(raw)
+        except Exception as exc:
+            raise ValidationError("stored checkpoint failed its native closed schema") from exc
+        return ResolvedArtifact(
+            storage_reference=storage_reference,
+            reference=checkpoint.content_hash,
+            schema=artifact_schema,
+            content_hash=checkpoint.content_hash,
+            payload_hash=hash_bytes(raw),
+            provenance_chain=(ArtifactLink(
+                reference=checkpoint.content_hash,
+                schema_version=artifact_schema,
+                content_hash=checkpoint.content_hash,
+            ),),
+        )
     loaders = {
         "task-packet/0.1.0": (ws.tasks_dir, TaskPacket, verify_content_hash, "task"),
         COUNCIL_SCHEMA_VERSION: (
