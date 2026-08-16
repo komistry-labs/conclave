@@ -417,14 +417,14 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 871 passing on Windows; 1 symlink test conditional
+python -m pytest                  # 892 passing on Windows; 1 symlink test conditional
 ```
 
 `validate` separates its findings by category because they have different
 owners. Schema is structural. Semantic is internally inconsistent. **Governance
 is an authority-boundary breach and is not for an agent to resolve.**
 
-### IDM verification, evidence and gates (Increments 19A–19C)
+### IDM verification, evidence and gates (Increment 19)
 
 The unreleased Increment 19A foundation defines closed, immutable trust-input,
 actor-binding and verification-result records. It pins the accepted IDM build,
@@ -446,7 +446,13 @@ workspaces remain local. Strong modes retain the exact human-principal ceremony
 while requiring a workspace-bound identity PASS and, for attested mode, one
 exact non-conflicting evidence binding. Gated egress, authority-decision,
 evidence-receipt and ledger-checkpoint flows confer no membership or authority.
-Broker and cryptographic-fixture conformance remain Stage 19D work.
+
+19D adds a fixture-only external broker and a public verification adapter for
+the exact hash-pinned IDM v1 wheel and source baseline. End-to-end tests use
+actual attached-payload COSE_Sign1 evidence, delegation, role, scope, trusted
+fixture time and signed revocation state. Fixture identities and deterministic
+test keys are newly generated and explicitly non-production; B1/B2 trust,
+identities and keys are not adopted. CI covers Windows, Ubuntu and macOS.
 
 ---
 
@@ -455,11 +461,11 @@ Broker and cryptographic-fixture conformance remain Stage 19D work.
 Known and deliberate:
 
 - No runtime GitHub repository adapter or automated pull-request creation or
-  merge. Repository-hosted GitHub Actions does run the required Windows and
-  Linux test matrix on pushes and pull requests.
+  merge. Repository-hosted GitHub Actions does run the required Windows,
+  Linux and macOS test matrix on pushes and pull requests.
 - Human confirmation remains local and single-operator, not multi-custodian.
-  Identity/evidence workflow enforcement is available, while actual pinned IDM
-  fixture and external-broker conformance remain Stage 19D work.
+  Identity/evidence workflow enforcement and fixture conformance are
+  available, but there is no production signing-broker or key integration.
 - No trust or calibration tracking.
 - No semantic comparison of provider prose.
 - Undeclared object use is not detected; only declarations are evaluated.
@@ -495,6 +501,7 @@ src/conclave/
 ├── synthesis.py     verified sequential synthesis and immutable continuation
 ├── identity.py      closed IDM records and fail-closed verifier boundary
 ├── evidence.py      bounded signing requests and external evidence import
+├── idm_reference_adapter.py  hash-pinned, verification-only IDM v1 adapter
 ├── gating.py        explicit identity modes and fail-closed workflow gates
 ├── checkpoint.py    immutable ledger checkpoint candidates and receipts
 ├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
