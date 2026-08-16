@@ -41,6 +41,7 @@ from .contextrelay import context_relay_dir, read_context_relay_export
 from .concurrency import read_batch
 from .errors import LedgerError
 from .execution import read_run_record
+from .evidence import EvidenceSigningRequest, SignedEvidenceBinding
 from .handoff import HandoffPacket, verify_handoff_content_hash
 from .hashing import hash_file
 from .ledger import append_event, exists, read_events, verify
@@ -71,6 +72,9 @@ SUPPORTED_EVENTS = (
     "execution_batch_recorded",
     "orchestration_recorded",
     "synthesis_continuation_recorded",
+    "evidence_signing_request_recorded",
+    "evidence_envelope_preserved",
+    "signed_evidence_binding_recorded",
 )
 
 
@@ -376,6 +380,73 @@ def _synthesis_continuations(
     return candidates, unresolved
 
 
+def _evidence_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    """Reconstruct existence events only; never infer verification PASS."""
+    from .identity import read_record, sha256_bytes
+
+    candidates: list[Candidate] = []
+    unresolved: list[Unresolved] = []
+    referenced_envelopes: set[Path] = set()
+    for path in sorted(ws.signing_requests_dir.glob("*.json")):
+        try:
+            request = read_record(path, EvidenceSigningRequest)
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable signing request: {exc}"))
+            continue
+        candidates.append(Candidate(
+            event_type="evidence_signing_request_recorded",
+            actor="conclave", authority_level="system",
+            subject_refs=[request.artifact_reference],
+            artifact_hashes={"evidence_signing_request": request.content_hash},
+            payload={"authority_effect": "none", "action_execution_allowed": False,
+                     "note": "request existence only; no signing or approval inferred"},
+            occurred_at=None, identifying_hash=request.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    for path in sorted(ws.signing_bindings_dir.glob("*.json")):
+        try:
+            binding = read_record(path, SignedEvidenceBinding)
+            envelope_path = ws.root / binding.envelope_storage_reference
+            envelope_path = envelope_path.resolve()
+            if envelope_path.parent != ws.signing_envelopes_dir.resolve() \
+                    or not envelope_path.is_file():
+                raise ValueError("bound envelope is absent or outside the envelope store")
+            if sha256_bytes(envelope_path.read_bytes()) != binding.envelope_hash:
+                raise ValueError("bound envelope hash does not verify")
+            referenced_envelopes.add(envelope_path)
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable evidence binding: {exc}"))
+            continue
+        candidates.append(Candidate(
+            event_type="evidence_envelope_preserved",
+            actor="conclave", authority_level="system",
+            subject_refs=[], artifact_hashes={"evidence_envelope": binding.envelope_hash},
+            payload={"authority_effect": "none", "action_execution_allowed": False,
+                     "note": "exact envelope bytes existed; no signature validity inferred"},
+            occurred_at=None, identifying_hash=binding.envelope_hash,
+            source=envelope_path.relative_to(ws.root).as_posix(),
+        ))
+        candidates.append(Candidate(
+            event_type="signed_evidence_binding_recorded",
+            actor="conclave", authority_level="system",
+            subject_refs=[], artifact_hashes={
+                "signed_evidence_binding": binding.content_hash,
+                "evidence_envelope": binding.envelope_hash,
+                "evidence_signing_request": binding.signing_request_hash,
+            },
+            payload={"authority_effect": "none", "action_execution_allowed": False,
+                     "note": "binding existence only; verification outcome, authority and membership not inferred"},
+            occurred_at=None, identifying_hash=binding.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    for path in sorted(ws.signing_envelopes_dir.glob("*.cose")):
+        if path.resolve() not in referenced_envelopes:
+            unresolved.append(Unresolved(
+                path.name, "orphan envelope has no immutable binding; verification is not inferred"
+            ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -614,6 +685,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _execution_batches,
         _orchestrations,
         _synthesis_continuations,
+        _evidence_records,
         _relay_exports,
         _handoffs,
         _scope_reviews,

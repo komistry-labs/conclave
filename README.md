@@ -417,14 +417,14 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 788 tests
+python -m pytest                  # 852 passing on Windows; 1 symlink test conditional
 ```
 
 `validate` separates its findings by category because they have different
 owners. Schema is structural. Semantic is internally inconsistent. **Governance
 is an authority-boundary breach and is not for an agent to resolve.**
 
-### IDM verification foundation (Increment 19A)
+### IDM verification and evidence foundation (Increments 19A–19B)
 
 The unreleased Increment 19A foundation defines closed, immutable trust-input,
 actor-binding and verification-result records. It pins the accepted IDM build,
@@ -433,10 +433,15 @@ identity, domain, role, scope, time, revocation or content-binding mismatch.
 Every result is authority-neutral and can neither confer membership nor permit
 an action.
 
-19A intentionally provides no key, allocation, issuance or signing surface.
-It also does not enable identity mode in existing workspaces. Import workflows,
-ledger integration, workflow gates and broker conformance remain separately
-authorized future stages 19B through 19D.
+19B adds closed signing requests and fail-closed import of externally produced
+evidence through an explicitly injected pinned public verifier. Exact envelope
+bytes, immutable verification bindings, verified-request conflicts and neutral
+ledger evidence are preserved. There is still no key, allocation, issuance or
+signing surface and no default verifier fallback.
+
+Neither stage enables identity mode in existing workspaces. Workflow gates and
+broker/cryptographic-fixture conformance remain separately authorized future
+stages 19C and 19D.
 
 ---
 
@@ -448,8 +453,8 @@ Known and deliberate:
   merge. Repository-hosted GitHub Actions does run the required Windows and
   Linux test matrix on pushes and pull requests.
 - Human identity confirmation is local and single-operator, not cryptographic
-  or multi-custodian. The IDM verifier foundation exists, but identity import,
-  workflow enforcement and IDM-backed signing are not yet implemented.
+  or multi-custodian. The verifier and evidence-import foundations exist, but
+  workflow enforcement and IDM-backed signing are not implemented.
 - No trust or calibration tracking.
 - No semantic comparison of provider prose.
 - Undeclared object use is not detected; only declarations are evaluated.
@@ -484,6 +489,7 @@ src/conclave/
 ├── orchestration.py batch-to-Handoff/Scope/Council projection and pause state
 ├── synthesis.py     verified sequential synthesis and immutable continuation
 ├── identity.py      closed IDM records and fail-closed verifier boundary
+├── evidence.py      bounded signing requests and external evidence import
 ├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
 └── cli.py          command surface
 ```
