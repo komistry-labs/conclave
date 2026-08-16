@@ -75,6 +75,10 @@ EVENT_TYPES = (
     "orchestration_recorded",
     "synthesis_continuation_recorded",
     "context_relay_prompt_exported",
+    "evidence_signing_request_recorded",
+    "evidence_envelope_preserved",
+    "signed_evidence_binding_recorded",
+    "evidence_conflict_observed",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -527,6 +531,9 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("provider_runs", "runs", "*.yaml", False),
     ("execution_batches", "batches", "*.yaml", False),
     ("orchestration_records", "orchestrations", "*.yaml", False),
+    ("evidence_signing_requests", "signing/requests", "*.json", False),
+    ("evidence_envelopes", "signing/envelopes", "*.cose", True),
+    ("signed_evidence_bindings", "signing/bindings", "*.json", False),
 )
 
 

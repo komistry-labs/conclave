@@ -355,7 +355,7 @@ def seal_record(record_type: type[RecordT], data: dict[str, Any]) -> RecordT:
     return record_type.model_validate({**data, "content_hash": _body_hash(draft)})
 
 
-def _read_exact_inputs(
+def load_public_verification_inputs(
     trust_inputs: TrustInputSet,
     public_evidence: dict[str, bytes],
 ) -> tuple[bytes | None, tuple[bytes, ...], list[str]]:
@@ -411,7 +411,7 @@ def verify_actor_identity(
     if artifact_hash != binding.idm_artifact_hash:
         reasons.append("IDM_ARTIFACT_HASH_MISMATCH")
 
-    trust_bytes, revocations, input_reasons = _read_exact_inputs(
+    trust_bytes, revocations, input_reasons = load_public_verification_inputs(
         trust_inputs, public_evidence
     )
     reasons.extend(input_reasons)

@@ -37,6 +37,12 @@ SUBDIRS = (
     "synthesis",
     "context",
     "routes",
+    "identity/trust-inputs",
+    "identity/bindings",
+    "identity/verifications",
+    "signing/requests",
+    "signing/envelopes",
+    "signing/bindings",
 )
 
 
@@ -108,6 +114,30 @@ class Workspace:
     @property
     def routes_dir(self) -> Path:
         return self.root / "routes"
+
+    @property
+    def identity_trust_inputs_dir(self) -> Path:
+        return self.root / "identity" / "trust-inputs"
+
+    @property
+    def identity_bindings_dir(self) -> Path:
+        return self.root / "identity" / "bindings"
+
+    @property
+    def identity_verifications_dir(self) -> Path:
+        return self.root / "identity" / "verifications"
+
+    @property
+    def signing_requests_dir(self) -> Path:
+        return self.root / "signing" / "requests"
+
+    @property
+    def signing_envelopes_dir(self) -> Path:
+        return self.root / "signing" / "envelopes"
+
+    @property
+    def signing_bindings_dir(self) -> Path:
+        return self.root / "signing" / "bindings"
 
     # -- config ------------------------------------------------------------
 
