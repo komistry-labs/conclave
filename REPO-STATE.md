@@ -1,5 +1,10 @@
 # Repository State Investigation
 
+> **Historical incident record.** This document captures the repository state
+> during the v0.1.1 index-desynchronisation investigation. The incident was
+> remedied as recorded in §7. It is retained for provenance and does not
+> describe the current branch, HEAD, tags, test count, or release status.
+
 | | |
 |---|---|
 | Repository | `C:\Users\ZY\CLAUDE\komistry\conclave` |

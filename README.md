@@ -417,7 +417,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 731 tests
+python -m pytest                  # 743 tests
 ```
 
 `validate` separates its findings by category because they have different
@@ -430,7 +430,9 @@ is an authority-boundary breach and is not for an agent to resolve.**
 
 Known and deliberate:
 
-- No GitHub or pull-request automation.
+- No runtime GitHub repository adapter or automated pull-request creation or
+  merge. Repository-hosted GitHub Actions does run the required Windows and
+  Linux test matrix on pushes and pull requests.
 - Human identity confirmation is local and single-operator, not cryptographic
   or multi-custodian. IDM-backed signing is a future increment.
 - No trust or calibration tracking.
