@@ -73,6 +73,7 @@ EVENT_TYPES = (
     "provider_run_captured",
     "execution_batch_recorded",
     "orchestration_recorded",
+    "synthesis_continuation_recorded",
     "context_relay_prompt_exported",
 )
 

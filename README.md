@@ -1,4 +1,4 @@
-# CONCLAVE v0.6.0
+# CONCLAVE v0.7.0
 
 A local command-line tool for coordinating several AI providers on Komistry OS
 work through manual relay or explicitly authorized live adapters, with an
@@ -37,9 +37,8 @@ operator-supplied source manifests rather than silently traversing KOS.
 
 Requires Python 3.10 or newer.
 
-The current increment is verified on **Windows with Python 3.12**. The v0.3.0
-baseline was also verified on Debian/Linux with Python 3.13. Run the suite on
-each deployment platform before relying on a new release candidate.
+The current increment is verified on **Windows with Python 3.12** and
+**Debian/Linux with Python 3.13**. GitHub Actions runs the same platform pair.
 
 ```powershell
 cd conclave
@@ -78,7 +77,8 @@ conclave --help
 ├── routes/                  sealed stage and token-budget plans
 ├── runs/                    normalized, immutable provider runs
 ├── batches/                 sealed concurrent-wave records
-└── orchestrations/          immutable batch-to-Council pause checkpoints
+├── orchestrations/          immutable batch-to-Council pause checkpoints
+└── synthesis/               immutable sequential-synthesis continuations
 ```
 
 ---
@@ -126,8 +126,7 @@ conclave run concurrent-live `
 ```
 
 Lead, critic, and verifier remain isolated and may overlap. A synthesizer is
-never admitted to the concurrent wave and continues through the sequential
-stage command after all predecessor runs are complete.
+never admitted to the concurrent wave.
 
 After a completed batch:
 
@@ -138,6 +137,23 @@ conclave orchestrate batch .conclave/batches/<execution-batch>.yaml
 This validates every response before downstream writes, creates Handoff and
 Scope artifacts, assembles the Council Review, and stops at an explicit pause.
 It does not record Arthur's decision or execute any authorised action.
+
+For a canonical route paused at `awaiting_sequential_synthesizer`, run exactly
+one governed final stage:
+
+```powershell
+conclave orchestrate synthesize-live `
+  .conclave/orchestrations/<orchestration>.yaml `
+  --instruction synthesis-instruction.md `
+  --egress-decision D7-egress.yaml `
+  --model claude-model `
+  --estimated-input-tokens 3200
+```
+
+The sealed prompt includes every independent Handoff and its provenance. The
+result becomes a new Run, Handoff, Scope Review, Council Review, and immutable
+synthesis-continuation record. Earlier artifacts are never changed. The final
+state is still a pause for the human principal; no action is authorised.
 
 Scope flags: `-t` target (may be changed) · `-r` read-only (may be read and
 cited) · `-x` prohibited (must not be touched at all). Object references take
@@ -278,6 +294,7 @@ Every canonical artifact is written once and never edited.
 | Council Review | id derived from its source set; a changed set is a new review |
 | Authority Decision | one write-once record per exact Council Review; review remains unchanged |
 | Context relay export | stage-bound prompt plus sealed content-addressed manifest |
+| Synthesis continuation | binds the independent checkpoint, final Run and new Council; never edits them |
 | Ledger | append-only, hash-chained, never rewritten or truncated |
 
 All content hashes are computed on **canonical bytes** — UTF-8, no BOM, LF,
@@ -448,6 +465,7 @@ src/conclave/
 ├── routing.py      provider roles, route stages, and token ceilings
 ├── concurrency.py  bounded independent waves, retries, cancellation, batch evidence
 ├── orchestration.py batch-to-Handoff/Scope/Council projection and pause state
+├── synthesis.py     verified sequential synthesis and immutable continuation
 ├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
 └── cli.py          command surface
 ```
