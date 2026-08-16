@@ -29,6 +29,7 @@ from .providers import EgressDecision, FixtureAdapter, read_egress_decision
 from .routing import ProviderCapability, TokenBudget, build_route, write_route_plan
 from .runhandoff import convert_run
 from .scope import review_handoff
+from .synthesis import execute_synthesis, synthesis_target
 from .taskpacket import (
     build_packet,
     build_revision,
@@ -779,6 +780,220 @@ def orchestrate_batch_command(
     typer.echo(f"  council review   : {outcome.council.yaml_path}")
     typer.echo(f"  record           : {outcome.path}")
     typer.echo("  action execution : not authorised")
+
+
+def _record_synthesis_outcome(ws: Workspace, outcome) -> None:
+    run = outcome.run
+    if outcome.run_created:
+        _record(
+            ws, event_type="provider_run_captured", actor="conclave",
+            authority_level="system", subject_refs=[run.packet_ref],
+            artifact_hashes={"provider_run": run.content_hash},
+            payload={
+                "source_artifact": outcome.run_path.relative_to(ws.root).as_posix(),
+                "provider": run.response.provider, "role": run.role,
+                "status": run.status, "egress_decision_ref": run.egress_decision_ref,
+                "execution_mode": "sequential-synthesizer",
+            },
+        )
+    conversion = outcome.conversion
+    if conversion.created:
+        packet = conversion.packet
+        _record(
+            ws, event_type="provider_response_preserved",
+            actor=packet.provider, authority_level="advisory_agent",
+            artifact_hashes={"raw_response": packet.raw_response_hash},
+            payload={
+                "raw_file": conversion.raw_path.name,
+                "source_run": outcome.run_path.name,
+                "note": "sequential synthesizer response captured by sealed Run Record",
+            },
+        )
+        _record(
+            ws, event_type="handoff_packet_imported",
+            actor=packet.provider, authority_level="advisory_agent",
+            subject_refs=[packet.packet_ref],
+            artifact_hashes={
+                "handoff_packet": packet.content_hash,
+                "raw_response": packet.raw_response_hash,
+                "prompt": packet.prompt_hash,
+                "provider_run": packet.run_record_hash,
+            },
+            payload={
+                "provider": packet.provider, "role": packet.role,
+                "submission_status": packet.status,
+                "recommended_next_action": packet.recommended_next_action,
+                "declared_objects_touched": sorted(packet.touched_keys()),
+                "handoff_file": conversion.handoff_path.name,
+                "source_run": outcome.run_path.name,
+                "note": "projected from the verified sequential synthesizer Run",
+            },
+        )
+    if outcome.scope.created:
+        review = outcome.scope.review
+        _record(
+            ws, event_type="scope_review_created",
+            subject_refs=[review.task_packet_ref],
+            artifact_hashes={
+                "scope_review": review.content_hash,
+                "handoff_packet": review.handoff_packet_hash,
+                "task_packet": review.task_packet_hash,
+            },
+            payload={
+                "provider": review.provider,
+                "evaluator_schema": review.schema_version,
+                "scope_status": review.scope_status,
+                "violation_count": review.violation_count,
+                "source_artifact": outcome.scope.path.relative_to(ws.root).as_posix(),
+                "note": "an evaluator result; it does not authorise remediation",
+            },
+        )
+    council = outcome.council.review
+    if outcome.council.created:
+        _record(
+            ws, event_type="council_review_created",
+            subject_refs=[council.task_packet_ref, council.council_review_id],
+            artifact_hashes={
+                "council_review": council.content_hash,
+                "task_packet": council.task_packet_hash,
+                "route_plan": council.route_plan_hash,
+            },
+            payload={
+                "council_review_id": council.council_review_id,
+                "review_status": council.review_status,
+                "submission_count": len(council.submissions),
+                "missing_providers": council.missing_providers,
+                "governance_alert_count": len(council.governance_alerts),
+                "selection_basis": council.selection_basis,
+                "yaml_file": outcome.council.yaml_path.name,
+                "markdown_file": outcome.council.markdown_path.name,
+                "note": "a post-synthesis review; no recommendation was accepted",
+            },
+        )
+    if outcome.created:
+        record = outcome.record
+        _record(
+            ws, event_type="synthesis_continuation_recorded",
+            subject_refs=[record.packet_ref, record.council_review_id],
+            artifact_hashes={
+                "synthesis_continuation": record.content_hash,
+                "source_orchestration": record.source_orchestration_hash,
+                "provider_run": record.synthesis_run_hash,
+                "council_review": record.council_review_hash,
+                "route_plan": record.route_plan_hash,
+                "task_packet": record.task_packet_hash,
+            },
+            payload={
+                "source_artifact": outcome.path.relative_to(ws.root).as_posix(),
+                "continuation_id": record.continuation_id,
+                "pause_state": record.pause_state,
+                "action_execution_allowed": False,
+            },
+        )
+
+
+def _show_synthesis_outcome(ws: Workspace, outcome) -> None:
+    _record_synthesis_outcome(ws, outcome)
+    colour = (
+        typer.colors.GREEN
+        if outcome.record.pause_state == "awaiting_human_decision"
+        else typer.colors.YELLOW
+    )
+    typer.secho(
+        f"SYNTHESIS PAUSED: {outcome.record.pause_state.upper()}",
+        fg=colour, bold=True,
+    )
+    typer.echo(f"  synthesizer     : {outcome.record.synthesizer_provider}")
+    typer.echo(f"  council status  : {outcome.record.council_review_status}")
+    typer.echo(f"  council review  : {outcome.council.yaml_path}")
+    typer.echo(f"  continuation    : {outcome.path}")
+    typer.echo("  human decision  : required")
+    typer.echo("  action execution: not authorised")
+
+
+@orchestrate_app.command("synthesize-fixture")
+def orchestrate_synthesize_fixture(
+    source_file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False,
+        help="Stored orchestration paused for sequential synthesis.",
+    ),
+    instruction_file: Path = typer.Option(..., "--instruction", exists=True),
+    response_file: Path = typer.Option(..., "--response", exists=True),
+    model: str = typer.Option("fixture-model", "--model"),
+    estimated_input_tokens: int = typer.Option(
+        ..., "--estimated-input-tokens", min=0
+    ),
+) -> None:
+    """EXECUTE a local sequential synthesizer fixture and rebuild Council review."""
+    ws, _ = _ws()
+    try:
+        _, provider = synthesis_target(ws, source_file)
+        adapter = FixtureAdapter(
+            provider=provider,
+            response_text=response_file.read_text(encoding="utf-8"),
+        )
+        decision = EgressDecision(
+            allowed=True, transports=frozenset({"fixture"}),
+            classifications=frozenset(
+                {"public", "internal", "restricted", "constitutional"}
+            ),
+            authority="CONCLAVE", decision_ref="LOCAL-FIXTURE-NO-EGRESS",
+        )
+        outcome = execute_synthesis(
+            ws=ws, source_file=source_file, adapter=adapter, decision=decision,
+            model=model,
+            operator_instruction=instruction_file.read_text(encoding="utf-8"),
+            estimated_input_tokens=estimated_input_tokens,
+        )
+    except (ConclaveError, OSError, IndexError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    _show_synthesis_outcome(ws, outcome)
+
+
+@orchestrate_app.command("synthesize-live")
+def orchestrate_synthesize_live(
+    source_file: Path = typer.Argument(
+        ..., exists=True, dir_okay=False,
+        help="Stored orchestration paused for sequential synthesis.",
+    ),
+    instruction_file: Path = typer.Option(..., "--instruction", exists=True),
+    egress_decision_file: Path = typer.Option(..., "--egress-decision", exists=True),
+    model: str = typer.Option(..., "--model"),
+    estimated_input_tokens: int = typer.Option(
+        ..., "--estimated-input-tokens", min=0
+    ),
+    timeout_seconds: float = typer.Option(120.0, "--timeout", min=1.0),
+) -> None:
+    """EXECUTE the one governed live synthesizer stage, then pause for Arthur."""
+    from .live_providers import ClaudeAdapter, GeminiAdapter, OpenAIAdapter
+
+    ws, config = _ws()
+    try:
+        _, provider = synthesis_target(ws, source_file)
+        decision = read_egress_decision(
+            egress_decision_file, principal=config.get("principal", "")
+        )
+        if provider in {"adrian", "openai"}:
+            adapter = OpenAIAdapter(provider=provider, timeout_seconds=timeout_seconds)
+        elif provider == "claude":
+            adapter = ClaudeAdapter(timeout_seconds=timeout_seconds)
+        elif provider == "gemini":
+            adapter = GeminiAdapter(timeout_seconds=timeout_seconds)
+        else:
+            raise ConclaveError(
+                f"no live adapter is registered for synthesizer {provider!r}"
+            )
+        outcome = execute_synthesis(
+            ws=ws, source_file=source_file, adapter=adapter, decision=decision,
+            model=model,
+            operator_instruction=instruction_file.read_text(encoding="utf-8"),
+            estimated_input_tokens=estimated_input_tokens,
+        )
+    except (ConclaveError, OSError, IndexError, TypeError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    _show_synthesis_outcome(ws, outcome)
 
 
 # -- init / status ---------------------------------------------------------

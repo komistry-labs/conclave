@@ -21,7 +21,7 @@ from .errors import WorkspaceError
 
 WORKSPACE_DIRNAME = ".conclave"
 CONFIG_FILENAME = "config.yaml"
-BOOTSTRAP_VERSION = "0.6.0"
+BOOTSTRAP_VERSION = "0.7.0"
 
 SUBDIRS = (
     "tasks",
@@ -34,6 +34,7 @@ SUBDIRS = (
     "runs",
     "batches",
     "orchestrations",
+    "synthesis",
     "context",
     "routes",
 )
@@ -95,6 +96,10 @@ class Workspace:
     @property
     def orchestrations_dir(self) -> Path:
         return self.root / "orchestrations"
+
+    @property
+    def synthesis_dir(self) -> Path:
+        return self.root / "synthesis"
 
     @property
     def context_dir(self) -> Path:

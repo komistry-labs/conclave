@@ -48,6 +48,7 @@ from .models import TaskPacket
 from .orchestration import read_orchestration
 from .routing import read_route_plan
 from .scope import ScopeReview, verify_review_content_hash
+from .synthesis import read_synthesis
 from .taskpacket import list_tasks, list_versions, packet_path, read_packet, verify_content_hash
 from .workspace import Workspace, utcnow
 
@@ -69,6 +70,7 @@ SUPPORTED_EVENTS = (
     "context_relay_prompt_exported",
     "execution_batch_recorded",
     "orchestration_recorded",
+    "synthesis_continuation_recorded",
 )
 
 
@@ -338,6 +340,42 @@ def _orchestrations(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     return candidates, unresolved
 
 
+def _synthesis_continuations(
+    ws: Workspace,
+) -> tuple[list[Candidate], list[Unresolved]]:
+    candidates, unresolved = [], []
+    for path in sorted(ws.synthesis_dir.glob("*.yaml")):
+        try:
+            record = read_synthesis(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(
+                path.name, f"unreadable synthesis continuation: {exc}"
+            ))
+            continue
+        candidates.append(Candidate(
+            event_type="synthesis_continuation_recorded",
+            actor="conclave", authority_level="system",
+            subject_refs=[record.packet_ref, record.council_review_id],
+            artifact_hashes={
+                "synthesis_continuation": record.content_hash,
+                "source_orchestration": record.source_orchestration_hash,
+                "provider_run": record.synthesis_run_hash,
+                "council_review": record.council_review_hash,
+                "route_plan": record.route_plan_hash,
+                "task_packet": record.task_packet_hash,
+            },
+            payload={
+                "continuation_id": record.continuation_id,
+                "pause_state": record.pause_state,
+                "action_execution_allowed": False,
+            },
+            occurred_at=record.completed_at,
+            identifying_hash=record.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -575,6 +613,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _provider_runs,
         _execution_batches,
         _orchestrations,
+        _synthesis_continuations,
         _relay_exports,
         _handoffs,
         _scope_reviews,
