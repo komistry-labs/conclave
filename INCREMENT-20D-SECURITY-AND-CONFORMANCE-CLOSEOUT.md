@@ -2,10 +2,12 @@
 
 ## Status
 
-**CANDIDATE — NOT FROZEN OR AUTHORIZED.** This document defines a proposed
-security/conformance closeout after reviewed Increments 20A–20C. It authorizes
-nothing by itself. Freeze, implementation, publication and merge each require
-separate Arthur authorization.
+**FROZEN BY ARTHUR ON 2026-08-27.** Arthur accepted decisions 1–14 from the
+candidate at commit `026b2c1b2a76ecbf14d26d74fdd67b1f3150f1b3`.
+This freeze fixes the bounded 20D protocol and authorizes only its retention
+as the governing implementation specification. It does not authorize
+implementation, publication, push, pull request, merge, release, deployment,
+credential access, network I/O or sandbox use.
 
 20D is not a production-readiness approval and does not authorize a live
 sandbox call, production broker, production credential or production trust.
@@ -202,7 +204,9 @@ Such an exercise must never place a credential in GitHub Actions, the
 repository, a report or chat. Its success does not alter
 `production_ready: false` and is not required to close fixture-level 20D.
 
-## 8. Candidate decisions requiring Arthur freeze
+## 8. Frozen decisions
+
+By freezing this protocol on 2026-08-27, Arthur accepted and confirmed:
 
 1. 20D is security/conformance closeout only; it adds no transport capability.
 2. Add exactly one immutable conformance-report schema and storage area.
@@ -223,8 +227,8 @@ repository, a report or chat. Its success does not alter
 
 ## 9. Explicit non-authorization
 
-This candidate authorizes no implementation, push, PR, merge, release, tag,
-deployment, credential access, network I/O or external exercise. It does not
-authorize production use, production trust, keys/signing, identity or trust
-bootstrap, allocation, issuance, membership, approval, constitutional action,
-KOS/IDM change or reliance on a conformance report as authority.
+This protocol freeze authorizes no implementation, push, PR, merge, release,
+tag, deployment, credential access, network I/O or external exercise. It does
+not authorize production use, production trust, keys/signing, identity or
+trust bootstrap, allocation, issuance, membership, approval, constitutional
+action, KOS/IDM change or reliance on a conformance report as authority.

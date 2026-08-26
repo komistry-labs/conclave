@@ -2,13 +2,15 @@
 
 ## Status
 
-**CANDIDATE — NOT FROZEN OR AUTHORIZED.** This document is assembled from the
-frozen Increment 20B boundary. It records a proposed protocol only. It does
-not authorize implementation, credential access, network I/O, sandbox use,
-retry, push, pull request, merge, release, deployment or production use.
+**FROZEN BY ARTHUR ON 2026-08-27.** Arthur accepted decisions 1–14 from the
+candidate at commit `026b2c1b2a76ecbf14d26d74fdd67b1f3150f1b3`.
+This freeze fixes the bounded 20C protocol and authorizes only its retention
+as the governing implementation specification. It does not authorize
+implementation, credential access, network I/O, sandbox use, retry, push,
+pull request, merge, release, deployment or production use.
 
-Freezing, implementation, publication, live sandbox use and merge each require
-separate Arthur authorization.
+Implementation, publication, live sandbox use and merge each require separate
+Arthur authorization.
 
 ## 0. Preflight basis and dependency
 
@@ -275,7 +277,9 @@ Ubuntu/Python 3.13 and macOS/Python 3.12 must prove:
 13. no external network or real credential in CI; and
 14. the complete suite remains green.
 
-## 10. Candidate decisions requiring Arthur freeze
+## 10. Frozen decisions
+
+By freezing this protocol on 2026-08-27, Arthur accepted and confirmed:
 
 1. 20C is sandbox-only operator workflow; production remains prohibited.
 2. Add only the stated CLI commands; require exact references everywhere.
@@ -296,8 +300,8 @@ Ubuntu/Python 3.13 and macOS/Python 3.12 must prove:
 
 ## 11. Explicit non-authorization
 
-This candidate does not authorize implementation, credential lookup, network
-I/O, live sandbox use, retry, push, PR, merge, release or deployment. It does
-not authorize production use, background work, keys/signing, trust or identity
-bootstrap, allocation, issuance, membership, approval, constitutional action,
-KOS/IDM changes, or Increment 20D implementation.
+This protocol freeze does not authorize implementation, credential lookup,
+network I/O, live sandbox use, retry, push, PR, merge, release or deployment.
+It does not authorize production use, background work, keys/signing, trust or
+identity bootstrap, allocation, issuance, membership, approval,
+constitutional action, KOS/IDM changes, or Increment 20D implementation.
