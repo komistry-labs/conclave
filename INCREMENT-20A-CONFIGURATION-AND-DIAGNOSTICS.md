@@ -2,19 +2,19 @@
 
 ## Status
 
-**REVISED DRAFT — NOT YET FROZEN FOR IMPLEMENTATION.** This revision replaces
-the initial 2026-08-18 draft after an implementation-boundary review. It is a
-protocol proposal only. It authorizes neither runtime changes nor a GitHub
-push, pull request, merge, release, deployment, key operation, trust-domain
-operation, KOS change, or IDM change.
+**FROZEN BY ARTHUR ON 2026-08-26.** This revision replaces the initial
+2026-08-18 draft after an implementation-boundary review. The freeze fixes the
+20A protocol and authorizes only its retention as the governing implementation
+specification. It authorizes neither runtime changes nor a GitHub push, pull
+request, merge, release, deployment, key operation, trust-domain operation,
+KOS change, or IDM change.
 
-Arthur must explicitly freeze this revised text before implementation can be
-considered. A separate authorization is then required for 20A implementation.
-Stages 20B–20D remain out of scope.
+A separate authorization is required for 20A implementation. Stages 20B–20D
+remain out of scope.
 
 ## 0. Preflight basis
 
-This draft is based on the read-only CONCLAVE handoff and the committed
+This protocol is based on the read-only CONCLAVE handoff and the committed
 Increment 19 closeouts. Its repository baseline is:
 
 | Item | Value |
@@ -333,7 +333,7 @@ macOS/Python 3.12:
 
 ## 8. Explicit non-authorization
 
-This revised draft does not authorize:
+This protocol freeze does not authorize:
 
 - implementation, push, pull request, merge, release, tag, deployment, or
   production reliance;
@@ -349,9 +349,9 @@ This revised draft does not authorize:
 - changes to KOS, IDM, ADR-0009, ADR-0010, or the Constitution; or
 - any change to the authority-neutral meaning of Increment 19 evidence.
 
-## 9. Freeze decision required
+## 9. Frozen decisions
 
-Before this protocol becomes frozen, Arthur must confirm that:
+By freezing this protocol on 2026-08-26, Arthur confirmed that:
 
 1. 20A is limited to the three record types, the keyless fixture diagnostics
    probe, the five stated CLI commands, tests and documentation;
@@ -361,3 +361,7 @@ Before this protocol becomes frozen, Arthur must confirm that:
    readiness, identity PASS, authority, membership, or production readiness;
 5. implementation remains a separately authorized next stage; and
 6. no push or PR occurs until separately authorized.
+
+This disposition freezes the protocol only. It does not constitute the
+separate implementation or repository-publication authorization described
+above.
