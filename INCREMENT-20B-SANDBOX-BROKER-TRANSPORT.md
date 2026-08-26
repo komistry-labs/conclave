@@ -2,16 +2,16 @@
 
 ## Status
 
-**DRAFT — NOT FROZEN FOR IMPLEMENTATION.** Prepared on 2026-08-26 from the
-merged Increment 20A baseline. This document is a protocol proposal only. It
-does not authorize runtime changes, credential access, network I/O, a sandbox
-call, push, pull request, merge, release, deployment, signing, key access,
-identity issuance, membership, trust-domain operation, KOS change, or IDM
-change.
+**FROZEN BY ARTHUR ON 2026-08-26.** Arthur accepted decisions 1–14 from the
+draft at commit `59e3cbb35595be59fecceb1ad62cb5931d9ef1f9`. This freeze fixes
+the bounded 20B protocol and authorizes only its retention as the governing
+implementation specification. It does not authorize runtime changes,
+credential access, network I/O, a sandbox call, push, pull request, merge,
+release, deployment, signing, key access, identity issuance, membership,
+trust-domain operation, KOS change, or IDM change.
 
-Arthur must resolve and freeze the decisions in §10 before implementation can
-be considered. Implementation, publication, live sandbox use and merge each
-require separate authorization.
+Implementation, publication, live sandbox use and merge each require separate
+authorization.
 
 ## 0. Preflight basis
 
@@ -482,9 +482,9 @@ Actual live sandbox execution is not part of CI and requires a separate
 Arthur authorization naming the exact endpoint profile, authorization record,
 request, artifact classification and credential selector.
 
-## 10. Freeze decisions required
+## 10. Frozen decisions
 
-Before this protocol becomes frozen, Arthur must decide or confirm:
+By freezing this protocol on 2026-08-26, Arthur accepted and confirmed:
 
 1. **20B scope:** sandbox HTTPS transport only; production remains prohibited.
 2. **Endpoint model:** add an immutable endpoint record rather than placing a
@@ -516,7 +516,7 @@ Before this protocol becomes frozen, Arthur must decide or confirm:
 
 ## 11. Explicit non-authorization
 
-This draft does not authorize:
+This protocol freeze does not authorize:
 
 - implementation, credential resolution, network I/O or sandbox execution;
 - push, PR, merge, release, tag or deployment;
@@ -527,3 +527,6 @@ This draft does not authorize:
   decision, merge authority or production reliance;
 - changes to KOS, IDM, ADR-0009, ADR-0010 or the Constitution; or
 - any 20C or 20D implementation.
+
+This disposition freezes the protocol only. It does not constitute any of the
+separate implementation, publication, live-use or merge authorizations above.
