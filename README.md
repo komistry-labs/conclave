@@ -78,7 +78,10 @@ conclave --help
 ├── runs/                    normalized, immutable provider runs
 ├── batches/                 sealed concurrent-wave records
 ├── orchestrations/          immutable batch-to-Council pause checkpoints
-└── synthesis/               immutable sequential-synthesis continuations
+├── synthesis/               immutable sequential-synthesis continuations
+├── identity/verifier-profiles/  immutable public IDM implementation profiles
+├── signing/broker-profiles/     immutable fixture/sandbox transport profiles
+└── diagnostics/                 keyless fixture diagnostics results
 ```
 
 ---
@@ -417,7 +420,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 892 passing on Windows; 1 symlink test conditional
+python -m pytest                  # 920 passing; 2 platform-conditional symlink skips on Windows
 ```
 
 `validate` separates its findings by category because they have different
@@ -453,6 +456,36 @@ actual attached-payload COSE_Sign1 evidence, delegation, role, scope, trusted
 fixture time and signed revocation state. Fixture identities and deterministic
 test keys are newly generated and explicitly non-production; B1/B2 trust,
 identities and keys are not adopted. CI covers Windows, Ubuntu and macOS.
+
+### Configuration and diagnostics (Increment 20A)
+
+20A adds immutable, exact-reference verifier and broker profiles plus a
+source-checkout-only keyless fixture diagnostics probe. It does not select a
+default profile, change `identity.mode`, load trust input, resolve a credential,
+open a network connection, use a key, sign, or execute identity verification.
+
+```powershell
+conclave identity verifier-profile create `
+  --profile-id public-idm `
+  --expected-trust-input identity/trust-inputs/future-public-trust.json `
+  --expected-trust-domain tdid:cccccccccccccccccccccccccc
+
+conclave evidence broker-profile create `
+  --profile-id fixture-broker `
+  --classification fixture-only `
+  --verifier-profile identity/verifier-profiles/<hash-named-profile>.json `
+  --transport fixture:conclave-19d-diagnostics `
+  --credential-reference none
+
+conclave evidence broker-check `
+  --broker-profile signing/broker-profiles/<hash-named-profile>.json
+```
+
+The resulting `PASS` means only that the bounded fixture subprocess contract
+returned the expected public IDM pin. Diagnostic time is local operational
+time, not trusted verification time. Sandbox profiles can be stored for a
+future increment, but 20A always refuses to call them and never dereferences
+their `env:NAME` credential selector.
 
 ---
 

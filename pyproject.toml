@@ -22,6 +22,9 @@ conclave = "conclave.cli:app"
 [tool.hatch.build.targets.wheel]
 packages = ["src/conclave"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"policies/idm-reference-pin.json" = "conclave/policies/idm-reference-pin.json"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

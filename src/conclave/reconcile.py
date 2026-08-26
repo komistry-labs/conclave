@@ -75,6 +75,7 @@ SUPPORTED_EVENTS = (
     "evidence_signing_request_recorded",
     "evidence_envelope_preserved",
     "signed_evidence_binding_recorded",
+    "fixture_broker_diagnostics_recorded",
 )
 
 
@@ -447,6 +448,39 @@ def _evidence_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]
     return candidates, unresolved
 
 
+def _diagnostics_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    """Restore factual diagnostics events; never infer availability or health."""
+    from .configuration import read_diagnostics_result
+
+    candidates: list[Candidate] = []
+    unresolved: list[Unresolved] = []
+    for path in sorted(ws.diagnostics_dir.glob("*.json")):
+        try:
+            record = read_diagnostics_result(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable diagnostics result: {exc}"))
+            continue
+        candidates.append(Candidate(
+            event_type="fixture_broker_diagnostics_recorded",
+            actor="conclave", authority_level="system", subject_refs=[],
+            artifact_hashes={
+                "diagnostics_result": record.content_hash,
+                "broker_profile": record.broker_profile_hash,
+                "verifier_profile": record.verifier_profile_hash,
+            },
+            payload={
+                "diagnostics_reference": path.relative_to(ws.root).as_posix(),
+                "status": record.status, "reason_codes": record.reason_codes,
+                "authority_effect": "none", "decision_effect": "none",
+                "membership_effect": "none", "action_execution_allowed": False,
+                "note": "fixture diagnostics only; no broker health, verification, signing, approval, authority or membership inferred",
+            },
+            occurred_at=record.checked_at, identifying_hash=record.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -686,6 +720,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _orchestrations,
         _synthesis_continuations,
         _evidence_records,
+        _diagnostics_records,
         _relay_exports,
         _handoffs,
         _scope_reviews,
