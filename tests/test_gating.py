@@ -506,6 +506,7 @@ def test_no_signing_or_key_command_surface():
     }
     assert names == {
         "show-mode", "set-mode", "import-binding", "record-receipt", "broker-check",
+        "broker-submit",
     }
     assert not names.intersection({"sign", "key", "generate-key", "load-key"})
     assert not names.intersection({"allocate", "issue", "key", "sign", "membership"})

@@ -95,6 +95,18 @@ verifier_profile_app = typer.Typer(
 broker_profile_app = typer.Typer(
     help="Immutable fixture/sandbox broker configuration; no credential is resolved.",
     no_args_is_help=True)
+sandbox_endpoint_app = typer.Typer(
+    help="Immutable sandbox broker endpoints; creation performs no network access.",
+    no_args_is_help=True)
+broker_authorization_app = typer.Typer(
+    help="Exact one-attempt sandbox egress authorizations.", no_args_is_help=True)
+broker_attempt_app = typer.Typer(
+    help="Display immutable sandbox attempt intents.", no_args_is_help=True)
+broker_receipt_app = typer.Typer(
+    help="Display immutable sandbox transport receipts.", no_args_is_help=True)
+broker_recovery_app = typer.Typer(
+    help="Explicit abandonment or one exact idempotent sandbox replay.",
+    no_args_is_help=True)
 
 app.add_typer(task_app, name="task")
 app.add_typer(relay_app, name="relay")
@@ -109,6 +121,11 @@ app.add_typer(identity_app, name="identity")
 app.add_typer(evidence_app, name="evidence")
 identity_app.add_typer(verifier_profile_app, name="verifier-profile")
 evidence_app.add_typer(broker_profile_app, name="broker-profile")
+evidence_app.add_typer(sandbox_endpoint_app, name="sandbox-endpoint")
+evidence_app.add_typer(broker_authorization_app, name="broker-authorization")
+evidence_app.add_typer(broker_attempt_app, name="broker-attempt")
+evidence_app.add_typer(broker_receipt_app, name="broker-receipt")
+evidence_app.add_typer(broker_recovery_app, name="broker-recovery")
 
 
 def _fail(msg: str) -> None:
@@ -1979,6 +1996,302 @@ def evidence_broker_check(
     typer.echo(f"reason_codes: {','.join(record.reason_codes) if record.reason_codes else 'none'}")
     typer.echo("time_source_classification: diagnostic-local")
     typer.echo("authority_effect: none")
+
+
+@sandbox_endpoint_app.command("create")
+def evidence_sandbox_endpoint_create(
+    endpoint_id: str = typer.Option(..., "--endpoint-id"),
+    broker_profile: str = typer.Option(..., "--broker-profile"),
+    origin: str = typer.Option(..., "--origin"),
+    request_path: str = typer.Option(..., "--request-path"),
+    maximum_request_bytes: int = typer.Option(8 * 1024 * 1024, "--maximum-request-bytes"),
+    maximum_response_bytes: int = typer.Option(1024 * 1024, "--maximum-response-bytes"),
+    connect_timeout_seconds: int = typer.Option(10, "--connect-timeout-seconds"),
+    total_timeout_seconds: int = typer.Option(30, "--total-timeout-seconds"),
+) -> None:
+    """CREATE an immutable sandbox endpoint; do not contact it."""
+    from .sandbox_transport import create_sandbox_endpoint
+
+    ws, config = _ws()
+    try:
+        record, path, created = create_sandbox_endpoint(
+            ws, endpoint_id=endpoint_id, broker_profile_reference=broker_profile,
+            origin=origin, request_path=request_path,
+            maximum_request_bytes=maximum_request_bytes,
+            maximum_response_bytes=maximum_response_bytes,
+            connect_timeout_seconds=connect_timeout_seconds,
+            total_timeout_seconds=total_timeout_seconds,
+            created_by=str(config.get("principal") or "unknown"),
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"content_hash: {record.content_hash}")
+    typer.echo("environment: sandbox")
+    typer.echo("authority_effect: none")
+
+
+@sandbox_endpoint_app.command("show")
+def evidence_sandbox_endpoint_show(
+    endpoint: str = typer.Option(..., "--endpoint"),
+) -> None:
+    """DISPLAY exactly one immutable endpoint without credential or network access."""
+    from .sandbox_transport import read_sandbox_endpoint
+
+    ws, _ = _ws()
+    try:
+        record = read_sandbox_endpoint(ws, endpoint)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@broker_authorization_app.command("create")
+def evidence_broker_authorization_create(
+    endpoint: str = typer.Option(..., "--endpoint"),
+    signing_request: str = typer.Option(..., "--signing-request"),
+    trust_input: str = typer.Option(..., "--trust-input"),
+    classification: str = typer.Option(..., "--classification"),
+    purpose: str = typer.Option(..., "--purpose"),
+    issued_at: str = typer.Option(..., "--issued-at"),
+    expires_at: str = typer.Option(..., "--expires-at"),
+    principal_reviewed_for_secrets: bool = typer.Option(
+        False, "--principal-reviewed-for-secrets"
+    ),
+) -> None:
+    """CREATE one exact human sandbox-egress authorization; no credential is read."""
+    from .sandbox_transport import create_broker_authorization
+
+    ws, config = _ws()
+    principal = str(config.get("principal") or "")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to authorize this one attempt"
+    )
+    try:
+        record, path, created = create_broker_authorization(
+            ws, endpoint_reference=endpoint,
+            signing_request_reference=signing_request,
+            trust_input_reference=trust_input,
+            transmitted_classification=classification, purpose=purpose,
+            principal_reviewed_for_secrets=principal_reviewed_for_secrets,
+            confirmed_principal=confirmation, issued_at=issued_at, expires_at=expires_at,
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"content_hash: {record.content_hash}")
+    typer.echo("authority_effect: broker_egress_only")
+    typer.echo("production_use_allowed: false")
+
+
+@broker_authorization_app.command("show")
+def evidence_broker_authorization_show(
+    authorization: str = typer.Option(..., "--authorization"),
+) -> None:
+    """DISPLAY one exact authorization without resolving its credential selector."""
+    from .sandbox_transport import read_broker_authorization
+
+    ws, _ = _ws()
+    try:
+        record = read_broker_authorization(ws, authorization)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@broker_attempt_app.command("show")
+def evidence_broker_attempt_show(
+    attempt: str = typer.Option(..., "--attempt"),
+) -> None:
+    """DISPLAY one exact initial-attempt intent."""
+    from .configuration import _safe_record_path
+    from .sandbox_transport import read_sandbox_attempt
+
+    ws, _ = _ws()
+    try:
+        path = _safe_record_path(
+            ws, attempt, ws.signing_broker_attempts_dir, ("signing", "broker-attempts")
+        )
+        record = read_sandbox_attempt(path)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@broker_receipt_app.command("show")
+def evidence_broker_receipt_show(
+    receipt: str = typer.Option(..., "--receipt"),
+) -> None:
+    """DISPLAY one exact initial transport receipt."""
+    from .configuration import _safe_record_path
+    from .sandbox_transport import read_sandbox_receipt
+
+    ws, _ = _ws()
+    try:
+        path = _safe_record_path(
+            ws, receipt, ws.signing_broker_receipts_dir, ("signing", "broker-receipts")
+        )
+        record = read_sandbox_receipt(path)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@evidence_app.command("broker-submit")
+def evidence_broker_submit(
+    endpoint: str = typer.Option(..., "--endpoint"),
+    authorization: str = typer.Option(..., "--authorization"),
+) -> None:
+    """SUBMIT one exact authorized request to a provisioned sandbox broker."""
+    from .sandbox_operator_runtime import load_operator_verification_runtime
+    from .sandbox_transport import (
+        EnvironmentCredentialResolver,
+        HttpsSandboxBrokerTransport,
+        execute_sandbox_transport,
+        read_broker_authorization,
+    )
+
+    ws, config = _ws()
+    principal = str(config.get("principal") or "")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to execute this authorized sandbox attempt"
+    )
+    if confirmation != principal:
+        _fail("BROKER_SUBMIT_PRINCIPAL_MISMATCH")
+        return
+    try:
+        authorization_record = read_broker_authorization(ws, authorization)
+        runtime = load_operator_verification_runtime(
+            ws, trust_input_reference=authorization_record.trust_input_reference
+        )
+        result = execute_sandbox_transport(
+            ws, endpoint_reference=endpoint, authorization_reference=authorization,
+            transport=HttpsSandboxBrokerTransport(),
+            credential_resolver=EnvironmentCredentialResolver(),
+            public_evidence=runtime.public_evidence, verifier=runtime.verifier,
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"attempt: {result.attempt_path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"receipt: {result.receipt_path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"outcome: {result.receipt.outcome}")
+    typer.echo(f"verification_status: {result.receipt.verification_status}")
+    typer.echo(f"reason_codes: {','.join(result.receipt.reason_codes) or 'none'}")
+    typer.echo("authority_effect: none")
+
+
+@broker_recovery_app.command("authorize")
+def evidence_broker_recovery_authorize(
+    attempt: str = typer.Option(..., "--attempt"),
+    receipt: str | None = typer.Option(None, "--receipt"),
+    action: str = typer.Option(..., "--action"),
+    purpose: str = typer.Option(..., "--purpose"),
+    issued_at: str = typer.Option(..., "--issued-at"),
+    expires_at: str = typer.Option(..., "--expires-at"),
+    confirm_ambiguous_outcome: bool = typer.Option(False, "--confirm-ambiguous-outcome"),
+    reviewed_artifact_for_secrets: bool = typer.Option(False, "--reviewed-artifact-for-secrets"),
+    acknowledge_replay_consequence: bool = typer.Option(False, "--acknowledge-replay-consequence"),
+) -> None:
+    """CREATE an exact abandonment or one-replay human authorization."""
+    from .sandbox_recovery import create_recovery_authorization
+
+    ws, config = _ws()
+    principal = str(config.get("principal") or "")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to authorize recovery"
+    )
+    try:
+        record, path, created = create_recovery_authorization(
+            ws, original_attempt_reference=attempt,
+            original_receipt_reference=receipt, action=action, purpose=purpose,
+            confirmed_principal=confirmation,
+            principal_confirmed_ambiguous_outcome=confirm_ambiguous_outcome,
+            principal_reviewed_artifact_for_secrets=reviewed_artifact_for_secrets,
+            principal_acknowledged_replay_consequence=acknowledge_replay_consequence,
+            issued_at=issued_at, expires_at=expires_at,
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"content_hash: {record.content_hash}")
+    typer.echo(f"action: {record.action}")
+    typer.echo("authority_effect: broker_recovery_only")
+    typer.echo("production_use_allowed: false")
+
+
+@broker_recovery_app.command("execute")
+def evidence_broker_recovery_execute(
+    authorization: str = typer.Option(..., "--authorization"),
+) -> None:
+    """EXECUTE exact abandonment or one idempotent replay."""
+    from .sandbox_operator_runtime import load_operator_verification_runtime
+    from .sandbox_recovery import execute_recovery, read_recovery_authorization
+    from .sandbox_transport import EnvironmentCredentialResolver, HttpsSandboxBrokerTransport
+
+    class UnusedVerifier:
+        def verify_evidence(self, **_kwargs):
+            raise RuntimeError("verifier must not be called during abandonment")
+
+    ws, config = _ws()
+    principal = str(config.get("principal") or "")
+    confirmation = typer.prompt(
+        f"Type the exact workspace principal {principal!r} to execute this recovery disposition"
+    )
+    if confirmation != principal:
+        _fail("RECOVERY_PRINCIPAL_MISMATCH")
+        return
+    try:
+        recovery = read_recovery_authorization(ws, authorization)
+        if recovery.action == "IDEMPOTENT_REPLAY":
+            runtime = load_operator_verification_runtime(
+                ws, trust_input_reference=recovery.original_trust_input_reference
+            )
+            public_evidence, verifier = runtime.public_evidence, runtime.verifier
+        else:
+            public_evidence, verifier = {}, UnusedVerifier()
+        result = execute_recovery(
+            ws, recovery_authorization_reference=authorization,
+            transport=HttpsSandboxBrokerTransport(),
+            credential_resolver=EnvironmentCredentialResolver(),
+            public_evidence=public_evidence, verifier=verifier,
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"disposition: {result.disposition_path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"outcome: {result.disposition.outcome}")
+    typer.echo(f"verification_status: {result.disposition.verification_status}")
+    typer.echo(f"reason_codes: {','.join(result.disposition.reason_codes) or 'none'}")
+    typer.echo("authority_effect: none")
+
+
+@broker_recovery_app.command("show")
+def evidence_broker_recovery_show(
+    disposition: str = typer.Option(..., "--disposition"),
+) -> None:
+    """DISPLAY one exact immutable recovery disposition."""
+    from .configuration import _safe_record_path
+    from .sandbox_recovery import read_recovery_disposition
+
+    ws, _ = _ws()
+    try:
+        path = _safe_record_path(
+            ws, disposition, ws.signing_broker_recovery_dispositions_dir,
+            ("signing", "broker-recovery-dispositions"),
+        )
+        record = read_recovery_disposition(path)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
 
 
 @identity_app.command("import-binding")
