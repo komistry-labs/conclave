@@ -40,9 +40,12 @@ SUBDIRS = (
     "identity/trust-inputs",
     "identity/bindings",
     "identity/verifications",
+    "identity/verifier-profiles",
     "signing/requests",
     "signing/envelopes",
     "signing/bindings",
+    "signing/broker-profiles",
+    "diagnostics",
 )
 
 
@@ -128,6 +131,10 @@ class Workspace:
         return self.root / "identity" / "verifications"
 
     @property
+    def identity_verifier_profiles_dir(self) -> Path:
+        return self.root / "identity" / "verifier-profiles"
+
+    @property
     def signing_requests_dir(self) -> Path:
         return self.root / "signing" / "requests"
 
@@ -138,6 +145,14 @@ class Workspace:
     @property
     def signing_bindings_dir(self) -> Path:
         return self.root / "signing" / "bindings"
+
+    @property
+    def signing_broker_profiles_dir(self) -> Path:
+        return self.root / "signing" / "broker-profiles"
+
+    @property
+    def diagnostics_dir(self) -> Path:
+        return self.root / "diagnostics"
 
     # -- config ------------------------------------------------------------
 

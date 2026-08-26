@@ -82,6 +82,7 @@ EVENT_TYPES = (
     "actor_identity_binding_imported",
     "evidence_receipt_recorded",
     "signed_ledger_checkpoint_recorded",
+    "fixture_broker_diagnostics_recorded",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -539,6 +540,9 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("evidence_signing_requests", "signing/requests", "*.json", False),
     ("evidence_envelopes", "signing/envelopes", "*.cose", True),
     ("signed_evidence_bindings", "signing/bindings", "*.json", False),
+    ("idm_verifier_profiles", "identity/verifier-profiles", "*.json", False),
+    ("broker_transport_profiles", "signing/broker-profiles", "*.json", False),
+    ("diagnostics_results", "diagnostics", "*.json", False),
     ("ledger_checkpoints", "ledger", "checkpoint-*.json", False),
 )
 

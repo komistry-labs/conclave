@@ -7,6 +7,7 @@ RECONCILES a gap, or merely DISPLAYS state.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -88,6 +89,12 @@ identity_app = typer.Typer(
 evidence_app = typer.Typer(
     help="Public signed-evidence coordination. No private-key or signing command exists.",
     no_args_is_help=True)
+verifier_profile_app = typer.Typer(
+    help="Immutable public IDM verifier profiles; no identity verification is run.",
+    no_args_is_help=True)
+broker_profile_app = typer.Typer(
+    help="Immutable fixture/sandbox broker configuration; no credential is resolved.",
+    no_args_is_help=True)
 
 app.add_typer(task_app, name="task")
 app.add_typer(relay_app, name="relay")
@@ -100,6 +107,8 @@ app.add_typer(run_app, name="run")
 app.add_typer(orchestrate_app, name="orchestrate")
 app.add_typer(identity_app, name="identity")
 app.add_typer(evidence_app, name="evidence")
+identity_app.add_typer(verifier_profile_app, name="verifier-profile")
+evidence_app.add_typer(broker_profile_app, name="broker-profile")
 
 
 def _fail(msg: str) -> None:
@@ -1862,6 +1871,114 @@ def identity_show_mode() -> None:
         _fail(str(exc))
         return
     typer.echo(mode)
+
+
+@verifier_profile_app.command("create")
+def identity_verifier_profile_create(
+    profile_id: str = typer.Option(..., "--profile-id"),
+    expected_trust_input: str = typer.Option(..., "--expected-trust-input"),
+    expected_trust_domain: str = typer.Option(..., "--expected-trust-domain"),
+) -> None:
+    """CREATE an immutable public verifier profile; no trust input is loaded."""
+    from .configuration import create_verifier_profile
+
+    ws, config = _ws()
+    try:
+        record, path, created = create_verifier_profile(
+            ws, profile_id=profile_id,
+            expected_trust_input_reference=expected_trust_input,
+            expected_trust_domain_id=expected_trust_domain,
+            created_by=str(config.get("principal") or "unknown"),
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"content_hash: {record.content_hash}")
+    typer.echo("authority_effect: none")
+
+
+@verifier_profile_app.command("show")
+def identity_verifier_profile_show(
+    profile: str = typer.Option(..., "--profile"),
+) -> None:
+    """DISPLAY exactly one verifier profile by canonical workspace reference."""
+    from .configuration import read_verifier_profile
+
+    ws, _ = _ws()
+    try:
+        record = read_verifier_profile(ws, profile)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@broker_profile_app.command("create")
+def evidence_broker_profile_create(
+    profile_id: str = typer.Option(..., "--profile-id"),
+    classification: str = typer.Option(..., "--classification"),
+    verifier_profile: str = typer.Option(..., "--verifier-profile"),
+    transport: str = typer.Option(..., "--transport"),
+    credential_reference: str = typer.Option(..., "--credential-reference"),
+) -> None:
+    """CREATE immutable public broker configuration without resolving credentials."""
+    from .configuration import create_broker_profile
+
+    ws, config = _ws()
+    try:
+        record, path, created = create_broker_profile(
+            ws, profile_id=profile_id, classification=classification,
+            verifier_profile_reference=verifier_profile,
+            transport_identifier=transport, credential_reference=credential_reference,
+            created_by=str(config.get("principal") or "unknown"),
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"content_hash: {record.content_hash}")
+    typer.echo("authority_effect: none")
+
+
+@broker_profile_app.command("show")
+def evidence_broker_profile_show(
+    profile: str = typer.Option(..., "--profile"),
+) -> None:
+    """DISPLAY exactly one broker profile by canonical workspace reference."""
+    from .configuration import read_broker_profile
+
+    ws, _ = _ws()
+    try:
+        record = read_broker_profile(ws, profile)
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    typer.echo(json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False))
+
+
+@evidence_app.command("broker-check")
+def evidence_broker_check(
+    broker_profile: str = typer.Option(..., "--broker-profile"),
+) -> None:
+    """CREATE keyless fixture diagnostics; never contacts a broker or credential."""
+    from .configuration import diagnostics_event_fields, run_broker_check
+
+    ws, _ = _ws()
+    try:
+        record, path, created = run_broker_check(
+            ws, broker_profile_reference=broker_profile
+        )
+    except (ConclaveError, ValueError) as exc:
+        _fail(str(exc))
+        return
+    if created:
+        _record(ws, **diagnostics_event_fields(ws, record, path))
+    typer.echo(f"{'created' if created else 'unchanged'}: {path.relative_to(ws.root).as_posix()}")
+    typer.echo(f"status: {record.status}")
+    typer.echo(f"reason_codes: {','.join(record.reason_codes) if record.reason_codes else 'none'}")
+    typer.echo("time_source_classification: diagnostic-local")
+    typer.echo("authority_effect: none")
 
 
 @identity_app.command("import-binding")
