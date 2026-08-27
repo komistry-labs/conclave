@@ -98,7 +98,19 @@ def _safe_origin(value: str) -> str:
         pass
     else:
         raise ValueError("sandbox origin must not use an IP literal")
-    if "*" in host or port is not None and not 1 <= port <= 65535:
+    labels = host.split(".")
+    if (
+        "*" in host
+        or len(host) > 253
+        or len(labels) < 2
+        or any(
+            not label or len(label) > 63
+            or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is None
+            for label in labels
+        )
+        or port == 443
+        or port is not None and not 1 <= port <= 65535
+    ):
         raise ValueError("sandbox origin host or port is invalid")
     expected = f"https://{host}" + (f":{port}" if port is not None else "")
     if value.rstrip("/") != expected:
@@ -107,7 +119,12 @@ def _safe_origin(value: str) -> str:
 
 
 def _safe_request_path(value: str) -> str:
-    if SAFE_PATH.fullmatch(value) is None or "//" in value or "/./" in value or "/../" in value:
+    segments = value.split("/")
+    if (
+        SAFE_PATH.fullmatch(value) is None
+        or "//" in value
+        or any(segment in {".", ".."} for segment in segments)
+    ):
         raise ValueError("sandbox request path is not canonical")
     return value
 
@@ -352,8 +369,22 @@ def _public_addresses(host: str, port: int) -> list[str]:
     if not addresses:
         raise SandboxTransportFailure("DNS_RESOLUTION_FAILED", sent=False)
     for value in addresses:
-        address = ipaddress.ip_address(value)
-        if not address.is_global:
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise SandboxTransportFailure("DNS_RESPONSE_INVALID", sent=False) from exc
+        if (
+            not address.is_global
+            or address.is_multicast
+            or address.is_unspecified
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_private
+            or (
+            isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None
+            )
+        ):
             raise SandboxTransportFailure("DESTINATION_ADDRESS_NOT_PUBLIC", sent=False)
     return addresses
 
@@ -377,6 +408,7 @@ class HttpsSandboxBrokerTransport:
         try:
             raw = socket.create_connection((address, port), timeout=endpoint.connect_timeout_seconds)
             connection.sock = context.wrap_socket(raw, server_hostname=host)
+            connection.sock.settimeout(endpoint.total_timeout_seconds)
             headers = {
                 "Content-Type": REQUEST_MEDIA_TYPE,
                 "Accept": RESPONSE_MEDIA_TYPE,

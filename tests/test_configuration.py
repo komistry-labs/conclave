@@ -155,9 +155,8 @@ def test_broker_profile_cross_hash_is_enforced(ws):
     conflicting_path = path.with_name(
         f"broker-{conflicting.content_hash.removeprefix('sha256:')}.json"
     )
-    conflicting_path.write_text(
-        json.dumps(conflicting.model_dump(mode="json")), encoding="utf-8"
-    )
+    from conclave.identity import write_immutable_record
+    write_immutable_record(conflicting_path, conflicting)
     ref = conflicting_path.relative_to(ws.root).as_posix()
     with pytest.raises(IntegrityError, match="hash mismatch"):
         read_broker_profile(ws, ref)

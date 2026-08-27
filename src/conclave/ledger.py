@@ -86,6 +86,7 @@ EVENT_TYPES = (
     "sandbox_broker_transport_attempt_recorded",
     "sandbox_broker_recovery_abandoned",
     "sandbox_broker_recovery_attempt_recorded",
+    "sandbox_broker_conformance_report_recorded",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -552,6 +553,7 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("broker_recovery_authorizations", "signing/broker-recovery-authorizations", "*.json", False),
     ("sandbox_broker_recovery_attempts", "signing/broker-recovery-attempts", "*.json", False),
     ("broker_recovery_dispositions", "signing/broker-recovery-dispositions", "*.json", False),
+    ("sandbox_broker_conformance_reports", "signing/conformance-reports", "*.json", False),
     ("diagnostics_results", "diagnostics", "*.json", False),
     ("ledger_checkpoints", "ledger", "checkpoint-*.json", False),
 )

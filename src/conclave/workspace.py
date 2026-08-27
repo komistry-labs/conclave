@@ -52,6 +52,7 @@ SUBDIRS = (
     "signing/broker-recovery-authorizations",
     "signing/broker-recovery-attempts",
     "signing/broker-recovery-dispositions",
+    "signing/conformance-reports",
     "diagnostics",
 )
 
@@ -184,6 +185,10 @@ class Workspace:
     @property
     def signing_broker_recovery_dispositions_dir(self) -> Path:
         return self.root / "signing" / "broker-recovery-dispositions"
+
+    @property
+    def signing_conformance_reports_dir(self) -> Path:
+        return self.root / "signing" / "conformance-reports"
 
     @property
     def diagnostics_dir(self) -> Path:

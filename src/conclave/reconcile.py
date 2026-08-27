@@ -79,6 +79,7 @@ SUPPORTED_EVENTS = (
     "sandbox_broker_transport_attempt_recorded",
     "sandbox_broker_recovery_abandoned",
     "sandbox_broker_recovery_attempt_recorded",
+    "sandbox_broker_conformance_report_recorded",
 )
 
 
@@ -609,6 +610,36 @@ def _sandbox_recovery_records(ws: Workspace) -> tuple[list[Candidate], list[Unre
     return candidates, unresolved
 
 
+def _conformance_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    """Restore report-existence events; never infer that conformance was approved."""
+    from .conformance import read_conformance_report
+
+    candidates: list[Candidate] = []
+    unresolved: list[Unresolved] = []
+    for path in sorted(ws.signing_conformance_reports_dir.glob("*.json")):
+        try:
+            report = read_conformance_report(path)
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable conformance report: {exc}"))
+            continue
+        candidates.append(Candidate(
+            event_type="sandbox_broker_conformance_report_recorded",
+            actor="conclave", authority_level="system", subject_refs=[],
+            artifact_hashes={"sandbox_broker_conformance_report": report.content_hash},
+            payload={
+                "status": report.overall_status,
+                "report_reference": path.relative_to(ws.root).as_posix(),
+                "production_ready": False, "production_use_allowed": False,
+                "authority_effect": "none", "decision_effect": "none",
+                "membership_effect": "none", "action_execution_allowed": False,
+                "note": "report existence only; conformance, approval and production authority are not inferred",
+            },
+            occurred_at=report.created_at, identifying_hash=report.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -851,6 +882,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _diagnostics_records,
         _sandbox_transport_records,
         _sandbox_recovery_records,
+        _conformance_records,
         _relay_exports,
         _handoffs,
         _scope_reviews,

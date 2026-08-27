@@ -526,7 +526,21 @@ def read_record(path: Path, record_type: type[RecordT]) -> RecordT:
     if len(raw) > 1024 * 1024:
         raise ValidationError("identity record exceeds the 1 MiB limit")
     try:
-        value = json.loads(raw.decode("utf-8"))
-        return record_type.model_validate(value)
+        def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            value: dict[str, Any] = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError(f"duplicate JSON member {key!r}")
+                value[key] = item
+            return value
+
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=reject_duplicates)
+        record = record_type.model_validate(value)
+        canonical = (
+            json.dumps(record.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        if raw != canonical:
+            raise ValueError("record is not in the canonical immutable JSON encoding")
+        return record
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
         raise ValidationError(f"invalid identity record {path}") from exc
