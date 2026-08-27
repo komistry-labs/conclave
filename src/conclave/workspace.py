@@ -45,6 +45,10 @@ SUBDIRS = (
     "signing/envelopes",
     "signing/bindings",
     "signing/broker-profiles",
+    "signing/broker-endpoints",
+    "signing/broker-authorizations",
+    "signing/broker-attempts",
+    "signing/broker-receipts",
     "diagnostics",
 )
 
@@ -149,6 +153,22 @@ class Workspace:
     @property
     def signing_broker_profiles_dir(self) -> Path:
         return self.root / "signing" / "broker-profiles"
+
+    @property
+    def signing_broker_endpoints_dir(self) -> Path:
+        return self.root / "signing" / "broker-endpoints"
+
+    @property
+    def signing_broker_authorizations_dir(self) -> Path:
+        return self.root / "signing" / "broker-authorizations"
+
+    @property
+    def signing_broker_attempts_dir(self) -> Path:
+        return self.root / "signing" / "broker-attempts"
+
+    @property
+    def signing_broker_receipts_dir(self) -> Path:
+        return self.root / "signing" / "broker-receipts"
 
     @property
     def diagnostics_dir(self) -> Path:

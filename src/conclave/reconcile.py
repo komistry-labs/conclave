@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -76,6 +76,7 @@ SUPPORTED_EVENTS = (
     "evidence_envelope_preserved",
     "signed_evidence_binding_recorded",
     "fixture_broker_diagnostics_recorded",
+    "sandbox_broker_transport_attempt_recorded",
 )
 
 
@@ -481,6 +482,49 @@ def _diagnostics_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolve
     return candidates, unresolved
 
 
+def _sandbox_transport_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    """Restore receipt-existence events without inferring send or verification facts."""
+    from .sandbox_transport import read_sandbox_attempt, read_sandbox_receipt
+
+    candidates: list[Candidate] = []
+    unresolved: list[Unresolved] = []
+    referenced_attempts: set[Path] = set()
+    for path in sorted(ws.signing_broker_receipts_dir.glob("*.json")):
+        try:
+            receipt = read_sandbox_receipt(path)
+            attempt_path = ws.root.joinpath(*PurePosixPath(receipt.attempt_reference).parts)
+            attempt = read_sandbox_attempt(attempt_path)
+            if attempt.content_hash != receipt.attempt_hash or attempt.attempt_id != receipt.attempt_id:
+                raise ValueError("receipt attempt binding mismatch")
+            referenced_attempts.add(attempt_path.resolve())
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable sandbox receipt: {exc}"))
+            continue
+        candidates.append(Candidate(
+            event_type="sandbox_broker_transport_attempt_recorded",
+            actor="conclave", authority_level="system", subject_refs=[],
+            artifact_hashes={"sandbox_broker_attempt": attempt.content_hash,
+                             "sandbox_broker_receipt": receipt.content_hash},
+            payload={"outcome": receipt.outcome, "reason_codes": receipt.reason_codes,
+                     "authority_effect": "none", "decision_effect": "none",
+                     "membership_effect": "none", "action_execution_allowed": False,
+                     "note": "receipt existence only; transport, signing and verification are not inferred"},
+            occurred_at=receipt.finished_at, identifying_hash=receipt.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    for path in sorted(ws.signing_broker_attempts_dir.glob("*.json")):
+        if path.resolve() not in referenced_attempts:
+            try:
+                read_sandbox_attempt(path)
+            except Exception as exc:
+                unresolved.append(Unresolved(path.name, f"unreadable sandbox attempt: {exc}"))
+            else:
+                unresolved.append(Unresolved(
+                    path.name, "prepared sandbox attempt has no receipt; outcome unknown and resend blocked"
+                ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -721,6 +765,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _synthesis_continuations,
         _evidence_records,
         _diagnostics_records,
+        _sandbox_transport_records,
         _relay_exports,
         _handoffs,
         _scope_reviews,

@@ -81,6 +81,10 @@ conclave --help
 ├── synthesis/               immutable sequential-synthesis continuations
 ├── identity/verifier-profiles/  immutable public IDM implementation profiles
 ├── signing/broker-profiles/     immutable fixture/sandbox transport profiles
+├── signing/broker-endpoints/    immutable sandbox HTTPS endpoint profiles
+├── signing/broker-authorizations/ exact one-attempt human egress grants
+├── signing/broker-attempts/     durable pre-network attempt intents
+├── signing/broker-receipts/     secret-free transport outcomes
 └── diagnostics/                 keyless fixture diagnostics results
 ```
 
@@ -420,7 +424,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 920 passing; 2 platform-conditional symlink skips on Windows
+python -m pytest                  # 952 passing; 2 platform-conditional symlink skips on Windows
 ```
 
 `validate` separates its findings by category because they have different
@@ -486,6 +490,26 @@ returned the expected public IDM pin. Diagnostic time is local operational
 time, not trusted verification time. Sandbox profiles can be stored for a
 future increment, but 20A always refuses to call them and never dereferences
 their `env:NAME` credential selector.
+
+### Dormant sandbox transport library (Increment 20B)
+
+20B adds a sandbox-only HTTPS transport library but deliberately adds no
+operator CLI command. The library requires an exact endpoint, signing request,
+public trust input and one-attempt human broker-egress authorization. It writes
+an immutable attempt intent before credential resolution, so a crash can never
+silently authorize a resend. Completed attempts produce secret-free receipts
+and factual ledger evidence.
+
+The sole credential mechanism is the exact `env:NAME` selector sealed in the
+20A sandbox profile. The token value is read once immediately before the one
+request and is never stored, hashed, logged or returned. HTTPS requires system
+CA and hostname verification, TLS 1.2 or newer, a vetted public destination,
+no redirect and no ambient proxy. Returned binary bytes remain subject to the
+unchanged Increment 19 public verifier; HTTP success never means evidence PASS.
+
+20B is dormant by default. Operator invocation, recovery and retry belong to
+20C. Production endpoints, production credentials, production trust, private
+keys and embedded signing remain prohibited.
 
 ---
 
