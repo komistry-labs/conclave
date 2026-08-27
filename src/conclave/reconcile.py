@@ -77,6 +77,8 @@ SUPPORTED_EVENTS = (
     "signed_evidence_binding_recorded",
     "fixture_broker_diagnostics_recorded",
     "sandbox_broker_transport_attempt_recorded",
+    "sandbox_broker_recovery_abandoned",
+    "sandbox_broker_recovery_attempt_recorded",
 )
 
 
@@ -525,6 +527,88 @@ def _sandbox_transport_records(ws: Workspace) -> tuple[list[Candidate], list[Unr
     return candidates, unresolved
 
 
+def _sandbox_recovery_records(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
+    """Restore disposition events without inferring transmission or broker state."""
+    from .sandbox_recovery import (
+        read_recovery_attempt,
+        read_recovery_authorization,
+        read_recovery_disposition,
+    )
+
+    candidates: list[Candidate] = []
+    unresolved: list[Unresolved] = []
+    referenced_attempts: set[Path] = set()
+    for path in sorted(ws.signing_broker_recovery_dispositions_dir.glob("*.json")):
+        try:
+            disposition = read_recovery_disposition(path)
+            authorization = read_recovery_authorization(
+                ws, disposition.recovery_authorization_reference
+            )
+            if authorization.content_hash != disposition.recovery_authorization_hash:
+                raise ValueError("recovery disposition authorization binding mismatch")
+            if (
+                authorization.original_attempt_hash != disposition.original_attempt_hash
+                or authorization.original_attempt_id != disposition.original_attempt_id
+                or authorization.original_attempt_reference != disposition.original_attempt_reference
+            ):
+                raise ValueError("recovery disposition original-attempt binding mismatch")
+            attempt = None
+            if disposition.recovery_attempt_reference is not None:
+                attempt_path = ws.root.joinpath(
+                    *PurePosixPath(disposition.recovery_attempt_reference).parts
+                )
+                attempt = read_recovery_attempt(attempt_path)
+                if attempt.content_hash != disposition.recovery_attempt_hash:
+                    raise ValueError("recovery disposition attempt binding mismatch")
+                if (
+                    attempt.original_attempt_hash != disposition.original_attempt_hash
+                    or attempt.recovery_authorization_hash != authorization.content_hash
+                ):
+                    raise ValueError("recovery attempt cross-binding mismatch")
+                referenced_attempts.add(attempt_path.resolve())
+        except Exception as exc:
+            unresolved.append(Unresolved(path.name, f"unreadable recovery disposition: {exc}"))
+            continue
+        event_type = (
+            "sandbox_broker_recovery_abandoned"
+            if disposition.action == "ABANDON"
+            else "sandbox_broker_recovery_attempt_recorded"
+        )
+        hashes = {
+            "broker_recovery_authorization": authorization.content_hash,
+            "broker_recovery_disposition": disposition.content_hash,
+            "original_sandbox_broker_attempt": disposition.original_attempt_hash,
+        }
+        if attempt is not None:
+            hashes["sandbox_broker_recovery_attempt"] = attempt.content_hash
+        candidates.append(Candidate(
+            event_type=event_type, actor="conclave", authority_level="system",
+            subject_refs=[], artifact_hashes=hashes,
+            payload={
+                "outcome": disposition.outcome,
+                "reason_codes": disposition.reason_codes,
+                "authority_effect": "none", "decision_effect": "none",
+                "membership_effect": "none", "action_execution_allowed": False,
+                "note": "disposition existence only; transport, signing and verification are not inferred",
+            },
+            occurred_at=disposition.finished_at,
+            identifying_hash=disposition.content_hash,
+            source=path.relative_to(ws.root).as_posix(),
+        ))
+    for path in sorted(ws.signing_broker_recovery_attempts_dir.glob("*.json")):
+        if path.resolve() not in referenced_attempts:
+            try:
+                read_recovery_attempt(path)
+            except Exception as exc:
+                unresolved.append(Unresolved(path.name, f"unreadable recovery attempt: {exc}"))
+            else:
+                unresolved.append(Unresolved(
+                    path.name,
+                    "prepared recovery attempt has no disposition; outcome unknown and further replay blocked",
+                ))
+    return candidates, unresolved
+
+
 def _relay_exports(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
     candidates, unresolved = [], []
     path = ws.outbox_dir / "exports.jsonl"
@@ -766,6 +850,7 @@ def discover(ws: Workspace) -> tuple[list[Candidate], list[Unresolved]]:
         _evidence_records,
         _diagnostics_records,
         _sandbox_transport_records,
+        _sandbox_recovery_records,
         _relay_exports,
         _handoffs,
         _scope_reviews,

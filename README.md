@@ -85,6 +85,9 @@ conclave --help
 ├── signing/broker-authorizations/ exact one-attempt human egress grants
 ├── signing/broker-attempts/     durable pre-network attempt intents
 ├── signing/broker-receipts/     secret-free transport outcomes
+├── signing/broker-recovery-authorizations/ exact human recovery grants
+├── signing/broker-recovery-attempts/ durable one-replay intents
+├── signing/broker-recovery-dispositions/ terminal recovery outcomes
 └── diagnostics/                 keyless fixture diagnostics results
 ```
 
@@ -424,7 +427,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 952 passing; 2 platform-conditional symlink skips on Windows
+python -m pytest                  # 974 passing; 2 platform-conditional symlink skips on Windows
 ```
 
 `validate` separates its findings by category because they have different
@@ -507,9 +510,32 @@ CA and hostname verification, TLS 1.2 or newer, a vetted public destination,
 no redirect and no ambient proxy. Returned binary bytes remain subject to the
 unchanged Increment 19 public verifier; HTTP success never means evidence PASS.
 
-20B is dormant by default. Operator invocation, recovery and retry belong to
-20C. Production endpoints, production credentials, production trust, private
-keys and embedded signing remain prohibited.
+20B is dormant by default. Production endpoints, production credentials,
+production trust, private keys and embedded signing remain prohibited.
+
+### Explicit sandbox operation and recovery (Increment 20C)
+
+20C adds exact-reference operator commands for creating/showing endpoints and
+one-attempt authorizations, submitting an already sealed evidence request,
+inspecting the resulting attempt/receipt, and resolving an ambiguous outcome.
+Recovery is either non-transmitting abandonment or one explicitly authorized
+replay of the byte-identical original body under the exact original
+idempotency key. There is no automatic retry, and a second ambiguous replay is
+terminal for CONCLAVE transmission.
+
+Before any CLI submission or replay, the public-only pinned IDM runtime must
+be explicitly provisioned with `CONCLAVE_IDM_WHEEL` and
+`CONCLAVE_IDM_SOURCE_ARCHIVE`. Every trust/revocation/time evidence reference
+must name an existing canonical file directly under the workspace's
+`identity/trust-inputs/` area. These inputs are public verification evidence,
+not broker credentials. The broker bearer value continues to come only from
+the authorization-bound `env:NAME` selector and is never persisted or shown.
+
+Abandonment does not load the public verifier, resolve a credential, perform
+DNS or open a socket. Deleted receipts or dispositions that already have
+ledger evidence block recovery; deletion can never reopen a transmission.
+All recovery records and events remain factual, immutable and authority
+neutral. A live sandbox call still requires separate Arthur authorization.
 
 ---
 
@@ -559,6 +585,9 @@ src/conclave/
 ├── identity.py      closed IDM records and fail-closed verifier boundary
 ├── evidence.py      bounded signing requests and external evidence import
 ├── idm_reference_adapter.py  hash-pinned, verification-only IDM v1 adapter
+├── sandbox_transport.py  sandbox HTTPS first-attempt boundary
+├── sandbox_recovery.py   explicit abandonment and one exact replay
+├── sandbox_operator_runtime.py  fail-closed public verifier provisioning
 ├── gating.py        explicit identity modes and fail-closed workflow gates
 ├── checkpoint.py    immutable ledger checkpoint candidates and receipts
 ├── live_providers.py  explicitly authorized OpenAI, Claude, Gemini adapters
