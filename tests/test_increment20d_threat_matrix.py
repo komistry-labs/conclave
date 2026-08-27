@@ -121,7 +121,9 @@ def test_immutable_json_reader_rejects_duplicate_members_and_noncanonical_encodi
     path = tmp_path / "endpoint.json"
     write_immutable_record(path, record)
     raw = path.read_text(encoding="utf-8")
-    duplicate = raw.replace('{\n  "profile"', '{\n  "profile": "sandbox-broker-endpoint",\n  "profile"', 1)
+    # Inject a second profile member independently of Pydantic's inherited
+    # field-order choice, which can differ across supported dependency builds.
+    duplicate = '{\n  "profile": "sandbox-broker-endpoint",' + raw[1:]
     path.write_text(duplicate, encoding="utf-8")
     with pytest.raises(ValidationError):
         read_record(path, SandboxBrokerEndpoint)
