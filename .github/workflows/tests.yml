@@ -17,31 +17,37 @@ jobs:
         include:
           - os: windows-latest
             python-version: "3.12"
+            platform-id: windows-latest-py3.12
+          - os: ubuntu-latest
+            python-version: "3.12"
+            platform-id: ubuntu-latest-py3.12
           - os: ubuntu-latest
             python-version: "3.13"
+            platform-id: ubuntu-latest-py3.13
           - os: macos-latest
             python-version: "3.12"
+            platform-id: macos-latest-py3.12
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install
+          cache-dependency-path: release/requirements-v0.8.0.lock
+      - name: Acquire exact dependencies
+        run: >-
+          python -m pip download --require-hashes
+          -r release/requirements-v0.8.0.lock --dest wheelhouse
+      - name: Install without index access
         run: |
-          python -m pip install -r tests/fixtures/idm-baseline/requirements.lock
+          python -m pip install --no-index --find-links wheelhouse --require-hashes -r release/requirements-v0.8.0.lock
           python -m pip install --no-deps tests/fixtures/idm-baseline/idm_reference-0.1.0.dev0-py3-none-any.whl
-          python -m pip install -e ".[dev]"
+          python -m pip install --no-build-isolation --no-deps -e .
       - name: Test
         run: python -m pytest --junitxml=pytest-report.xml
       - name: Build exact packages
-        run: python -m build --sdist --wheel --outdir dist
-      - name: Inventory and scan packages
-        run: >-
-          python tools/conformance_evidence.py --root . --dist dist
-          --junit pytest-report.xml --output conformance-evidence
-          --platform-id ${{ matrix.os }}-py${{ matrix.python-version }}
+        run: python -m build --no-isolation --sdist --wheel --outdir dist
       - name: Probe installed wheel in clean environment
         shell: python
         run: |
@@ -49,13 +55,23 @@ jobs:
           import subprocess, sys
           wheel = next(Path("dist").glob("*.whl"))
           subprocess.run([sys.executable, "tools/installed_wheel_probe.py",
-                          "--wheel", str(wheel), "--output",
+                          "--wheel", str(wheel), "--wheelhouse", "wheelhouse",
+                          "--output",
                           "conformance-evidence/installed-wheel-probe.json"], check=True)
+      - name: Inventory, scan, and finalize evidence
+        run: >-
+          python tools/conformance_evidence.py --root . --dist dist
+          --junit pytest-report.xml --probe
+          conformance-evidence/installed-wheel-probe.json
+          --output conformance-evidence --platform-id ${{ matrix.platform-id }}
       - name: Publish secret-free conformance evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: conformance-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: conformance-${{ matrix.platform-id }}
           path: |
+            dist/*.tar.gz
+            dist/*.whl
             pytest-report.xml
             conformance-evidence/
           if-no-files-found: error
+          retention-days: 90
