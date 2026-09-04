@@ -52,7 +52,7 @@ jobs:
                           "--wheel", str(wheel), "--output",
                           "conformance-evidence/installed-wheel-probe.json"], check=True)
       - name: Publish secret-free conformance evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: conformance-${{ matrix.os }}-py${{ matrix.python-version }}
           path: |
