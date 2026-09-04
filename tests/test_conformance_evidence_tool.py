@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.conformance_evidence import junit_report
+from tools.conformance_evidence import MAX_JUNIT_BYTES, junit_report
 
 
 def _junit(tmp_path: Path, cases: str) -> Path:
@@ -68,6 +68,14 @@ def test_empty_malformed_or_caseless_junit_is_rejected(tmp_path: Path, content: 
     path = tmp_path / "pytest-report.xml"
     path.write_text(content, encoding="utf-8")
     with pytest.raises(ValueError):
+        junit_report(path, "ubuntu-latest-py3.13")
+
+
+def test_oversized_junit_is_rejected_before_parsing(tmp_path: Path):
+    path = tmp_path / "pytest-report.xml"
+    path.write_bytes(b" " * (MAX_JUNIT_BYTES + 1))
+
+    with pytest.raises(ValueError, match="exceeds the 16 MiB limit"):
         junit_report(path, "ubuntu-latest-py3.13")
 
 
