@@ -335,12 +335,18 @@ def test_cli_submit_fails_before_credential_when_public_runtime_unavailable(
 
 
 def test_cli_abandonment_needs_no_public_runtime_or_credential(prepared, monkeypatch):
+    import conclave.sandbox_recovery as recovery_module
+
     first, _ = _ambiguous(prepared)
     _authorization, reference = _authorize(prepared, first, action="ABANDON")
     monkeypatch.setenv("CONCLAVE_HOME", str(prepared["ws"].root))
     monkeypatch.delenv("CONCLAVE_IDM_WHEEL", raising=False)
     monkeypatch.delenv("CONCLAVE_IDM_SOURCE_ARCHIVE", raising=False)
     monkeypatch.setenv("SANDBOX_BROKER_TOKEN", "ABANDON-SECRET-MUST-NOT-APPEAR")
+    # The CLI correctly uses current time. Freeze that diagnostic clock so
+    # this fixture tests credential-free abandonment instead of expiring as
+    # wall-clock time advances.
+    monkeypatch.setattr(recovery_module, "utcnow", lambda: NOW)
     runner = CliRunner()
     result = runner.invoke(
         app, ["evidence", "broker-recovery", "execute", "--authorization", reference],

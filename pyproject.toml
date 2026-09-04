@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "build>=1.2"]
 
 [project.scripts]
 conclave = "conclave.cli:app"
@@ -24,6 +24,14 @@ packages = ["src/conclave"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "policies/idm-reference-pin.json" = "conclave/policies/idm-reference-pin.json"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/conclave",
+    "/policies/idm-reference-pin.json",
+    "/pyproject.toml",
+    "/README.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

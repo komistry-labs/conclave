@@ -537,6 +537,35 @@ ledger evidence block recovery; deletion can never reopen a transmission.
 All recovery records and events remain factual, immutable and authority
 neutral. A live sandbox call still requires separate Arthur authorization.
 
+### Security and conformance closeout (Increment 20D)
+
+20D adds no transport, retry route, credential resolver, signer, key API or
+production mode. It adds one closed, content-hashed record at
+`.conclave/signing/conformance-reports/` for binding the exact CONCLAVE source,
+the frozen 20A–20D protocols, the pinned public IDM implementation, the three
+required platform runs, package inventories, machine reports and all fourteen
+frozen threat-control findings.
+
+The report cannot represent overall `PASS` unless every required item is
+present and passing with zero required security skips. A failed item forces
+`FAIL`; an unavailable or `NOT_RUN` item forces `INCOMPLETE`. The schema fixes
+`live_sandbox_exercised`, `production_ready`, `production_use_allowed` and
+`action_execution_allowed` to false and all authority, decision and membership
+effects to `none`.
+
+CI now builds and inventories both sdist and wheel, scans them for fixture and
+private-material markers, binds the machine-readable pytest report, performs a
+bounded static capability scan, installs the wheel in a fresh environment and
+publishes secret-free evidence separately for Windows/Python 3.12,
+Ubuntu/Python 3.13 and macOS/Python 3.12. The package configuration excludes
+the repository test broker, fixture archives, test identities, certificates
+and tokens from both distributions.
+
+A conformance report and its ledger event are factual evidence only. Ledger
+reconciliation may restore report existence from an already valid immutable
+record, but cannot infer PASS, approval or production readiness. Fixture-level
+20D closeout never authorizes a live sandbox call or production use.
+
 ---
 
 ## Current limitations
