@@ -455,3 +455,37 @@ freeze record yet applies to it. No release-preparation implementation has
 begun. No version, README, workflow, release-note, runtime, tag, GitHub Release,
 KOS, IDM, identity, trust, signing, deployment or production state has been
 changed by this drafting stage.
+
+## 16. Authorized Python-floor correction
+
+This section supersedes only the Python-floor and compatibility-matrix clauses
+in sections 6, 7, 9, 13 and 14. Sections 1–15 remain unaltered as the exact
+historical protocol frozen in PR #14 at commit
+`9150e77e582b14759d810a73f4a47ca2646d0bb1`.
+
+During authorized R1 implementation, the exact pinned IDM baseline proved the
+five-job matrix infeasible: its package metadata requires Python 3.12 or newer,
+and it cannot provide honest full-suite evidence on Python 3.10 or 3.11.
+Arthur authorized raising the floor to Python 3.12 because CONCLAVE is intended
+for future deployability rather than retro-compatibility.
+
+Accordingly:
+
+- `pyproject.toml` must change `requires-python` from `>=3.10` to `>=3.12`;
+- the release claims Python 3.12 through 3.13 compatibility;
+- the corrected matrix is Windows/Python 3.12, Ubuntu/Python 3.12,
+  Ubuntu/Python 3.13 and macOS/Python 3.12;
+- Ubuntu/Python 3.12 replaces the former Ubuntu/Python 3.10 and 3.11 jobs as
+  the separate declared-minimum release gate;
+- the closed evidence platform set and qualification manifest require these
+  four exact platform identities; and
+- references to five jobs, Python 3.10/3.11 compatibility and the unchanged
+  Python floor in sections 6, 7, 9, 13 and 14 are replaced only to the extent
+  required by this correction.
+
+This correction authorizes local R1 implementation and validation only. It
+does not authorize commit, push, PR creation, merge, tag, GitHub Release,
+publication, deployment, production use, live sandbox calls, signing, identity
+allocation, membership activation, KOS changes or IDM changes. The corrected
+protocol and R1 candidate remain subject to exact-diff review and an explicit
+freeze or commit authorization.
