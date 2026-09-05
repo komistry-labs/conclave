@@ -1,4 +1,4 @@
-# CONCLAVE v0.7.0
+# CONCLAVE v0.8.0
 
 A local command-line tool for coordinating several AI providers on Komistry OS
 work through manual relay or explicitly authorized live adapters, with an
@@ -35,10 +35,12 @@ operator-supplied source manifests rather than silently traversing KOS.
 
 ## Installation
 
-Requires Python 3.10 or newer.
-
-The current increment is verified on **Windows with Python 3.12** and
-**Debian/Linux with Python 3.13**. GitHub Actions runs the same platform pair.
+Requires Python 3.12 or newer. The required cross-platform matrix verifies
+**Windows with Python 3.12**, **Ubuntu/Linux with Python 3.13**, and **macOS
+with Python 3.12**. An additional Ubuntu/Python 3.12 job verifies the declared
+minimum independently of the Windows and macOS jobs. This is a targeted
+compatibility matrix, not a claim that every operating-system/Python
+combination is tested.
 
 ```powershell
 cd conclave
@@ -427,7 +429,7 @@ that its recommendations were accepted.
 conclave validate                 # Task Packets: schema / semantic / governance
 conclave scope review             # declared touches vs granted scope
 conclave ledger verify            # chain from genesis to head
-python -m pytest                  # 974 passing; 2 platform-conditional symlink skips on Windows
+python -m pytest                  # full local test suite
 ```
 
 `validate` separates its findings by category because they have different
@@ -436,7 +438,7 @@ is an authority-boundary breach and is not for an agent to resolve.**
 
 ### IDM verification, evidence and gates (Increment 19)
 
-The unreleased Increment 19A foundation defines closed, immutable trust-input,
+The v0.8.0 Increment 19A foundation defines closed, immutable trust-input,
 actor-binding and verification-result records. It pins the accepted IDM build,
 requires exact public trust/revocation/time evidence, and fails closed on any
 identity, domain, role, scope, time, revocation or content-binding mismatch.
@@ -523,6 +525,13 @@ replay of the byte-identical original body under the exact original
 idempotency key. There is no automatic retry, and a second ambiguous replay is
 terminal for CONCLAVE transmission.
 
+The public operator surface is explicit: `conclave evidence sandbox-endpoint`,
+`broker-authorization`, `broker-submit`, `broker-attempt`, `broker-receipt` and
+`broker-recovery` operate only on the exact records named by the operator.
+Their presence does not schedule work or authorize a provider or broker call;
+submission and the single bounded replay remain subject to their separate,
+exact human authorization records.
+
 Before any CLI submission or replay, the public-only pinned IDM runtime must
 be explicitly provisioned with `CONCLAVE_IDM_WHEEL` and
 `CONCLAVE_IDM_SOURCE_ARCHIVE`. Every trust/revocation/time evidence reference
@@ -553,11 +562,13 @@ present and passing with zero required security skips. A failed item forces
 `action_execution_allowed` to false and all authority, decision and membership
 effects to `none`.
 
-CI now builds and inventories both sdist and wheel, scans them for fixture and
-private-material markers, binds the machine-readable pytest report, performs a
-bounded static capability scan, installs the wheel in a fresh environment and
-publishes secret-free evidence separately for Windows/Python 3.12,
-Ubuntu/Python 3.13 and macOS/Python 3.12. The package configuration excludes
+CI builds and inventories both sdist and wheel, scans their bounded
+decompressed members for fixture and private-material markers, binds the
+machine-readable pytest report, performs a bounded static capability scan,
+installs the wheel in a fresh environment and publishes secret-free evidence
+for every matrix job. The required cross-platform jobs are Windows/Python
+3.12, Ubuntu/Python 3.13 and macOS/Python 3.12; Ubuntu/Python 3.12 separately
+verifies the declared minimum. The package configuration excludes
 the repository test broker, fixture archives, test identities, certificates
 and tokens from both distributions.
 

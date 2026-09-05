@@ -1,12 +1,12 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "conclave"
-version = "0.7.0"
+version = "0.8.0"
 description = "Multi-provider AI coordination and governance CLI for Komistry OS"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "typer>=0.12",
     "pydantic>=2.6",
