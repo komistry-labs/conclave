@@ -80,6 +80,22 @@ def validate_wheelhouse(path: Path) -> Path:
     return resolved
 
 
+def prepare_probe_environment(
+    root: Path, wheel_name: str, wheel_bytes: bytes
+) -> tuple[Path, Path, Path]:
+    """Create the clean environment before staging the immutable wheel copy."""
+    venv.EnvBuilder(with_pip=True, clear=True).create(root)
+    captured_dir = root / "captured-wheel"
+    captured_dir.mkdir()
+    captured_wheel = captured_dir / wheel_name
+    captured_wheel.write_bytes(wheel_bytes)
+    python = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    executable = root / (
+        "Scripts/conclave.exe" if os.name == "nt" else "bin/conclave"
+    )
+    return captured_wheel, python, executable
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wheel", type=Path, required=True)
@@ -96,14 +112,8 @@ def main() -> int:
     wheelhouse = validate_wheelhouse(args.wheelhouse)
     with tempfile.TemporaryDirectory(prefix="conclave-r1-probe-") as folder:
         root = Path(folder)
-        captured_dir = root / "captured-wheel"
-        captured_dir.mkdir()
-        captured_wheel = captured_dir / wheel.name
-        captured_wheel.write_bytes(wheel_bytes)
-        venv.EnvBuilder(with_pip=True, clear=True).create(root)
-        python = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        executable = root / (
-            "Scripts/conclave.exe" if os.name == "nt" else "bin/conclave"
+        captured_wheel, python, executable = prepare_probe_environment(
+            root, wheel.name, wheel_bytes
         )
         install = [
             str(python),

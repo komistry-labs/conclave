@@ -5,6 +5,7 @@ from tools.installed_wheel_probe import (
     build_report,
     command_record,
     normalize,
+    prepare_probe_environment,
     validate_wheelhouse,
 )
 import subprocess
@@ -85,3 +86,18 @@ def test_empty_wheelhouse_is_rejected(tmp_path):
     wheelhouse.mkdir()
     with pytest.raises(ValueError, match="empty"):
         validate_wheelhouse(wheelhouse)
+
+
+def test_probe_stages_wheel_after_environment_clear(tmp_path, monkeypatch):
+    root = tmp_path / "probe"
+
+    def simulate_clear(_builder, target):
+        target.mkdir(parents=True, exist_ok=True)
+        assert list(target.iterdir()) == []
+
+    monkeypatch.setattr("venv.EnvBuilder.create", simulate_clear)
+    captured, _python, _executable = prepare_probe_environment(
+        root, "conclave.whl", b"immutable-wheel"
+    )
+
+    assert captured.read_bytes() == b"immutable-wheel"
