@@ -43,7 +43,6 @@ jobs:
         run: |
           python -m pip install --no-index --find-links wheelhouse --require-hashes -r release/requirements-v0.8.0.lock
           python -m pip install --no-deps tests/fixtures/idm-baseline/idm_reference-0.1.0.dev0-py3-none-any.whl
-          python -m pip install --no-build-isolation --no-deps -e .
       - name: Test
         run: python -m pytest --junitxml=pytest-report.xml
       - name: Build exact packages
