@@ -45,6 +45,8 @@ jobs:
           python -m pip install --no-deps tests/fixtures/idm-baseline/idm_reference-0.1.0.dev0-py3-none-any.whl
       - name: Test
         run: python -m pytest --junitxml=pytest-report.xml
+        env:
+          PYTHONPATH: src
       - name: Build exact packages
         run: python -m build --no-isolation --sdist --wheel --outdir dist
       - name: Probe installed wheel in clean environment
