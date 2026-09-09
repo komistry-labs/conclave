@@ -35,15 +35,22 @@ def command_record(
 
 
 def build_report(wheel_hash: str, commands: list[dict]) -> dict:
-    correct_shape = [item.get("name") for item in commands] == ["help", "version"]
+    correct_shape = [item.get("name") for item in commands] == [
+        "help",
+        "version",
+        "github_adapter_import",
+    ]
     clean = correct_shape and all(
         item.get("returncode") == 0 and item.get("stderr") == "" for item in commands
     )
     version_ok = correct_shape and commands[1].get("stdout") == EXPECTED_VERSION
     help_ok = correct_shape and bool(commands[0].get("stdout"))
+    adapter_ok = (
+        correct_shape and commands[2].get("stdout") == "github-adapter-import-ok"
+    )
     return {
         "schema": "conclave-installed-wheel-probe/0.8.0",
-        "status": "PASS" if clean and version_ok and help_ok else "FAIL",
+        "status": "PASS" if clean and version_ok and help_ok and adapter_ok else "FAIL",
         "wheel_sha256": wheel_hash,
         "commands": commands,
     }
@@ -53,6 +60,23 @@ def run_commands(executable: Path) -> list[dict]:
     specs = (
         ("help", ["conclave", "--help"], [str(executable), "--help"]),
         ("version", ["conclave", "version"], [str(executable), "version"]),
+        (
+            "github_adapter_import",
+            [
+                "python",
+                "-I",
+                "-c",
+                "import conclave.github_foundation; import conclave.github_operation",
+            ],
+            [
+                str(executable.parent / "python.exe")
+                if os.name == "nt"
+                else str(executable.parent / "python"),
+                "-I",
+                "-c",
+                "import conclave.github_foundation; import conclave.github_operation; print('github-adapter-import-ok')",
+            ],
+        ),
     )
     records = []
     for name, logical, actual in specs:
@@ -90,9 +114,7 @@ def prepare_probe_environment(
     captured_wheel = captured_dir / wheel_name
     captured_wheel.write_bytes(wheel_bytes)
     python = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    executable = root / (
-        "Scripts/conclave.exe" if os.name == "nt" else "bin/conclave"
-    )
+    executable = root / ("Scripts/conclave.exe" if os.name == "nt" else "bin/conclave")
     return captured_wheel, python, executable
 
 
@@ -142,6 +164,18 @@ def main() -> int:
                 {
                     "name": "version",
                     "command": ["conclave", "version"],
+                    "returncode": completed.returncode,
+                    "stdout": "",
+                    "stderr": "wheel installation failed",
+                },
+                {
+                    "name": "github_adapter_import",
+                    "command": [
+                        "python",
+                        "-I",
+                        "-c",
+                        "import conclave.github_foundation; import conclave.github_operation",
+                    ],
                     "returncode": completed.returncode,
                     "stdout": "",
                     "stderr": "wheel installation failed",

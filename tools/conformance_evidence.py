@@ -292,6 +292,7 @@ def validate_probe(path: Path, wheel_hash: str) -> dict:
     if not isinstance(commands, list) or [c.get("name") for c in commands] != [
         "help",
         "version",
+        "github_adapter_import",
     ]:
         raise ValueError("installed-wheel probe commands are incomplete")
     if any(c.get("returncode") != 0 or c.get("stderr") != "" for c in commands):
@@ -300,6 +301,8 @@ def validate_probe(path: Path, wheel_hash: str) -> dict:
         raise ValueError("installed-wheel help output is empty")
     if commands[1].get("stdout") != "conclave 0.8.0\nschema  task-packet/0.1.0":
         raise ValueError("installed-wheel version output is invalid")
+    if commands[2].get("stdout") != "github-adapter-import-ok":
+        raise ValueError("installed-wheel GitHub adapter import is invalid")
     return value
 
 
