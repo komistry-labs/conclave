@@ -53,6 +53,14 @@ SUBDIRS = (
     "signing/broker-recovery-attempts",
     "signing/broker-recovery-dispositions",
     "signing/conformance-reports",
+    "github/repository-profiles",
+    "github/api-profiles",
+    "github/provider-keys",
+    "github/authorizations",
+    "github/intents",
+    "github/attempt-claims",
+    "github/lease-evidence",
+    "github/observations",
     "diagnostics",
 )
 
@@ -189,6 +197,38 @@ class Workspace:
     @property
     def signing_conformance_reports_dir(self) -> Path:
         return self.root / "signing" / "conformance-reports"
+
+    @property
+    def github_repository_profiles_dir(self) -> Path:
+        return self.root / "github" / "repository-profiles"
+
+    @property
+    def github_api_profiles_dir(self) -> Path:
+        return self.root / "github" / "api-profiles"
+
+    @property
+    def github_provider_keys_dir(self) -> Path:
+        return self.root / "github" / "provider-keys"
+
+    @property
+    def github_authorizations_dir(self) -> Path:
+        return self.root / "github" / "authorizations"
+
+    @property
+    def github_intents_dir(self) -> Path:
+        return self.root / "github" / "intents"
+
+    @property
+    def github_attempt_claims_dir(self) -> Path:
+        return self.root / "github" / "attempt-claims"
+
+    @property
+    def github_lease_evidence_dir(self) -> Path:
+        return self.root / "github" / "lease-evidence"
+
+    @property
+    def github_observations_dir(self) -> Path:
+        return self.root / "github" / "observations"
 
     @property
     def diagnostics_dir(self) -> Path:

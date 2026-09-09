@@ -28,6 +28,18 @@ def _commands(version=EXPECTED_VERSION, version_code=0, version_err=""):
             "stdout": version,
             "stderr": version_err,
         },
+        {
+            "name": "github_adapter_import",
+            "command": [
+                "python",
+                "-I",
+                "-c",
+                "import conclave.github_foundation; import conclave.github_operation",
+            ],
+            "returncode": 0,
+            "stdout": "github-adapter-import-ok",
+            "stderr": "",
+        },
     ]
 
 

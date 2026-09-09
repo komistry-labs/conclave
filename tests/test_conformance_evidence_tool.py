@@ -173,7 +173,9 @@ def test_clean_package_members_pass(tmp_path: Path, suffix: str):
 
 
 @pytest.mark.parametrize("suffix", ["pkg.whl", "pkg.tar.gz"])
-def test_package_member_count_limit_fails_closed(tmp_path: Path, monkeypatch, suffix: str):
+def test_package_member_count_limit_fails_closed(
+    tmp_path: Path, monkeypatch, suffix: str
+):
     package = tmp_path / suffix
     _package(package, "pkg/member", b"1")
     monkeypatch.setattr(evidence_tool, "MAX_ARCHIVE_MEMBERS", 0)
@@ -182,7 +184,9 @@ def test_package_member_count_limit_fails_closed(tmp_path: Path, monkeypatch, su
 
 
 @pytest.mark.parametrize("suffix", ["pkg.whl", "pkg.tar.gz"])
-def test_package_member_size_limit_fails_closed(tmp_path: Path, monkeypatch, suffix: str):
+def test_package_member_size_limit_fails_closed(
+    tmp_path: Path, monkeypatch, suffix: str
+):
     package = tmp_path / suffix
     _package(package, "pkg/member", b"1234")
     monkeypatch.setattr(evidence_tool, "MAX_MEMBER_BYTES", 3)
@@ -232,6 +236,18 @@ def test_final_index_binds_probe_exactly_and_never_self_references(
                         "command": ["conclave", "version"],
                         "returncode": 0,
                         "stdout": "conclave 0.8.0\nschema  task-packet/0.1.0",
+                        "stderr": "",
+                    },
+                    {
+                        "name": "github_adapter_import",
+                        "command": [
+                            "python",
+                            "-I",
+                            "-c",
+                            "import conclave.github_foundation; import conclave.github_operation",
+                        ],
+                        "returncode": 0,
+                        "stdout": "github-adapter-import-ok",
                         "stderr": "",
                     },
                 ],

@@ -87,6 +87,7 @@ EVENT_TYPES = (
     "sandbox_broker_recovery_abandoned",
     "sandbox_broker_recovery_attempt_recorded",
     "sandbox_broker_conformance_report_recorded",
+    "github_read_observation_recorded",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
