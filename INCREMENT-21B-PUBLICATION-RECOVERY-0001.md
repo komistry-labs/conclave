@@ -67,6 +67,25 @@ blocked that exact draft before commit or push. Its aggregate
 `2fd0958d0bd5e9dba96df664ffba7b24c5d81d0eeab424cff7d8b681d57a723f`
 is therefore a rejected historical candidate, not an approval.
 
+### R-4 — The external macOS probe created a second aliased root
+
+Replacement GitHub Actions run `34446903733` fully passed both Ubuntu jobs.
+macOS passed all 1,301 tests and built the exact package, then failed its
+isolated installed-wheel publication probe. Review found that the embedded
+external probe created a second `TemporaryDirectory` and used its raw `/var`
+path. On macOS, `/var` can resolve beneath `/private/var`, recreating the path
+identity split after the corrected outer environment. This diagnosis remains
+provisional until replacement macOS CI passes.
+
+### R-5 — Windows lock contention can surface as `PermissionError`
+
+The same replacement run exposed an independent existing-runtime defect in
+`test_concurrent_identical_import_is_idempotent`. Windows passed 1,300 tests,
+but one concurrent ledger writer received `PermissionError` from the
+`O_CREAT | O_EXCL` lock acquisition while the other writer owned the lock.
+The lock loop handled only `FileExistsError`. Earlier Windows and local runs
+passed, demonstrating the race-dependent nature of the defect.
+
 ## 4. Bounded amendments
 
 1. Descriptor-relative directory and artifact opens now translate every
@@ -82,22 +101,30 @@ is therefore a rejected historical candidate, not an approval.
    rebinds to it before creating the external publication fixture. The test
    binds the captured wheel, interpreter, and CONCLAVE executable to that same
    returned root.
+5. The embedded external publication probe now resolves its own existing
+   temporary root before creating a CONCLAVE workspace, closing the nested
+   macOS `/var` alias path.
+6. The portable ledger lock treats a Windows `PermissionError` as contention
+   under the existing bounded deadline without using a racy immediate
+   existence check. If the deadline is exhausted without an observable lock,
+   the permission failure propagates; non-Windows permission failures remain
+   immediate. Deterministic regressions simulate release-before-observation,
+   successful retry and cleanup, and a genuine non-Windows permission failure.
 
 No GitHub endpoint, credential flow, mutation budget, approval gate, authority
 boundary, KOS behavior, IDM behavior, or production capability changed.
 
 ## 5. Local recovery evidence
 
-- focused publication and installed-wheel-probe suite: `124 passed`
-- directly targeted recovery regressions: `2 passed`
-- complete Windows/Python 3.12 suite: `1,299 passed`, `2` permitted skips,
+- directly targeted recovery regressions: `14 passed`
+- complete Windows/Python 3.12 suite: `1,301 passed`, `2` permitted skips,
   zero failures and zero errors
-- collected tests: `1,301`
+- collected tests: `1,303`
 - scoped Ruff check and format verification: pass
 - fresh wheel SHA-256:
-  `7bd825d37645dc0a2581d69892f8191b972c6c0d12d011ca7b989f5c7b3213eb`
+  `4e24763595d7a92085fca4108ff0d028808e84cb62784cca2cf301a7b54f1ef4`
 - fresh sdist SHA-256:
-  `40dbc851a25c47c48622dc1626c5135db7128785c9fd3c20b972bb2414e38354`
+  `12294f06e903b97252ecae0e5bc9fd0d839f3b94e085dbe1d54f59cbc309bc23`
 - clean-environment installed-wheel probe: `PASS`
 - installed publication probe stdout:
   `github-publication-probe-ok`

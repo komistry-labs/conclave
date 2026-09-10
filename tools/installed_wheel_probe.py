@@ -315,7 +315,7 @@ artifacts = {
     for reference, content in PAYLOAD["artifacts"].items()
 }
 with tempfile.TemporaryDirectory(prefix="conclave-installed-publication-") as folder:
-    root = Path(folder)
+    root = Path(folder).resolve(strict=True)
     success, transport, evidence = run_one(
         root / "success", chain, rate, artifacts, PAYLOAD["now"]
     )

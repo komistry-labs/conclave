@@ -134,6 +134,7 @@ REQUIRED_FIELDS = (
 
 LOCK_TIMEOUT_SECONDS = 10.0
 STALE_LOCK_SECONDS = 60.0
+_WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION = os.name == "nt"
 
 
 # -- canonical form --------------------------------------------------------
@@ -204,7 +205,15 @@ def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterato
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError) as exc:
+            # Windows can report an O_EXCL collision as EACCES while another
+            # thread owns or has just released the lock file. Retry under the
+            # same deadline; checking for the file here would introduce a
+            # release-before-observation race. POSIX permission errors remain
+            # immediate failures.
+            permission_collision = isinstance(exc, PermissionError)
+            if permission_collision and not _WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION:
+                raise
             try:
                 age = time.time() - lock.stat().st_mtime
                 if age > STALE_LOCK_SECONDS:
@@ -213,6 +222,8 @@ def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterato
             except OSError:
                 pass
             if time.monotonic() > deadline:
+                if permission_collision and not lock.exists():
+                    raise exc
                 raise LedgerError(
                     f"could not acquire ledger lock at {lock} within {timeout}s. "
                     "Another CONCLAVE process may be appending."

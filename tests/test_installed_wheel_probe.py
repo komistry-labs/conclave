@@ -147,6 +147,7 @@ def test_full_publication_probe_is_staged_outside_the_installed_package(tmp_path
     assert 'evidence.glob("result-*.json")' in source
     assert "source_credential_lease_evidence_record" in source
     assert "PublicationResponse" not in source
+    assert "root = Path(folder).resolve(strict=True)" in source
 
 
 def test_normalization_and_recording_are_platform_independent():
