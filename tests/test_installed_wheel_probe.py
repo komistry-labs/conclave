@@ -187,8 +187,12 @@ def test_probe_stages_wheel_after_environment_clear(tmp_path, monkeypatch):
         assert list(target.iterdir()) == []
 
     monkeypatch.setattr("venv.EnvBuilder.create", simulate_clear)
-    captured, _python, _executable = prepare_probe_environment(
+    canonical_root, captured, python, executable = prepare_probe_environment(
         root, "conclave.whl", b"immutable-wheel"
     )
 
+    assert canonical_root == root.resolve(strict=True)
+    assert captured.parent.parent == canonical_root
+    assert python.is_relative_to(canonical_root)
+    assert executable.is_relative_to(canonical_root)
     assert captured.read_bytes() == b"immutable-wheel"

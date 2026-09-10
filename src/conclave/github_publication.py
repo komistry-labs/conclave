@@ -765,17 +765,26 @@ def read_artifacts_once(
                 | getattr(os, "O_DIRECTORY", 0)
                 | getattr(os, "O_NOFOLLOW", 0)
             )
-            directory_fd = os.open(base, directory_flags)
+            try:
+                directory_fd = os.open(base, directory_flags)
+            except OSError as exc:
+                raise ValueError("PROPOSAL_CONTENT_CHANGED") from exc
             try:
                 for part in relative.parts[:-1]:
-                    next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+                    try:
+                        next_fd = os.open(part, directory_flags, dir_fd=directory_fd)
+                    except OSError as exc:
+                        raise ValueError("PROPOSAL_CONTENT_CHANGED") from exc
                     os.close(directory_fd)
                     directory_fd = next_fd
-                descriptor = os.open(
-                    relative.parts[-1],
-                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=directory_fd,
-                )
+                try:
+                    descriptor = os.open(
+                        relative.parts[-1],
+                        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                        dir_fd=directory_fd,
+                    )
+                except OSError as exc:
+                    raise ValueError("PROPOSAL_CONTENT_CHANGED") from exc
             finally:
                 os.close(directory_fd)
             info = os.fstat(descriptor)

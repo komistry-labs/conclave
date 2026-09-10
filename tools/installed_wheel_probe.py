@@ -625,8 +625,14 @@ def validate_wheelhouse(path: Path) -> Path:
 
 def prepare_probe_environment(
     root: Path, wheel_name: str, wheel_bytes: bytes
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     """Create the clean environment before staging the immutable wheel copy."""
+    # Windows runners can expose TEMP through an 8.3 alias (for example
+    # RUNNER~1) while the virtual environment resolves to the long path.  Pin
+    # the existing directory to its canonical spelling before venv creation so
+    # every subsequent executable and fixture path names the same location.
+    root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve(strict=True)
     venv.EnvBuilder(with_pip=True, clear=True).create(root)
     captured_dir = root / "captured-wheel"
     captured_dir.mkdir()
@@ -634,7 +640,7 @@ def prepare_probe_environment(
     captured_wheel.write_bytes(wheel_bytes)
     python = root / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     executable = root / ("Scripts/conclave.exe" if os.name == "nt" else "bin/conclave")
-    return captured_wheel, python, executable
+    return root, captured_wheel, python, executable
 
 
 def main() -> int:
@@ -654,7 +660,7 @@ def main() -> int:
     wheelhouse = validate_wheelhouse(args.wheelhouse)
     with tempfile.TemporaryDirectory(prefix="conclave-r1-probe-") as folder:
         root = Path(folder)
-        captured_wheel, python, executable = prepare_probe_environment(
+        root, captured_wheel, python, executable = prepare_probe_environment(
             root, wheel.name, wheel_bytes
         )
         install = [
