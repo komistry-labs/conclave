@@ -88,6 +88,7 @@ EVENT_TYPES = (
     "sandbox_broker_recovery_attempt_recorded",
     "sandbox_broker_conformance_report_recorded",
     "github_read_observation_recorded",
+    "github_proposal_publication_fixture_verified",
 )
 
 # Reserved for a later increment. Declared so the vocabulary is stable and so
@@ -98,30 +99,46 @@ ALL_EVENT_TYPES = frozenset(EVENT_TYPES) | frozenset(RESERVED_EVENT_TYPES)
 
 # Event types an advisory agent may be the actor for. Anything implying
 # approval is absent by construction.
-ADVISORY_PERMITTED_EVENTS = frozenset({
-    "provider_response_preserved",
-    "handoff_packet_imported",
-    "provider_response_rejected",
-})
+ADVISORY_PERMITTED_EVENTS = frozenset(
+    {
+        "provider_response_preserved",
+        "handoff_packet_imported",
+        "provider_response_rejected",
+    }
+)
 
-HUMAN_PRINCIPAL_EVENTS = frozenset({
-    "human_decision_recorded",
-    "action_authorised",
-    "evidence_receipt_recorded",
-    "signed_ledger_checkpoint_recorded",
-})
+HUMAN_PRINCIPAL_EVENTS = frozenset(
+    {
+        "human_decision_recorded",
+        "action_authorised",
+        "evidence_receipt_recorded",
+        "signed_ledger_checkpoint_recorded",
+    }
+)
 
 REQUIRED_FIELDS = (
-    "schema_version", "sequence", "event_id", "event_type", "occurred_at",
-    "recorded_at", "actor", "authority_level", "subject_refs",
-    "artifact_hashes", "payload", "previous_entry_hash", "entry_hash",
+    "schema_version",
+    "sequence",
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "recorded_at",
+    "actor",
+    "authority_level",
+    "subject_refs",
+    "artifact_hashes",
+    "payload",
+    "previous_entry_hash",
+    "entry_hash",
 )
 
 LOCK_TIMEOUT_SECONDS = 10.0
 STALE_LOCK_SECONDS = 60.0
+_WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION = os.name == "nt"
 
 
 # -- canonical form --------------------------------------------------------
+
 
 def canonical_json(obj: Any) -> str:
     """Deterministic JSON. Sorted keys, no incidental whitespace."""
@@ -156,18 +173,21 @@ def derive_event_id(
 
     Payload is canonicalised, so key insertion order cannot affect identity.
     """
-    material = canonical_json({
-        "event_type": event_type,
-        "actor": actor,
-        "authority_level": authority_level,
-        "subject_refs": sorted(subject_refs),
-        "artifact_hashes": dict(sorted(artifact_hashes.items())),
-        "payload": payload or {},
-    })
+    material = canonical_json(
+        {
+            "event_type": event_type,
+            "actor": actor,
+            "authority_level": authority_level,
+            "subject_refs": sorted(subject_refs),
+            "artifact_hashes": dict(sorted(artifact_hashes.items())),
+            "payload": payload or {},
+        }
+    )
     return "EV-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:EVENT_ID_LEN]
 
 
 # -- locking ---------------------------------------------------------------
+
 
 @contextmanager
 def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
@@ -185,7 +205,15 @@ def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterato
         try:
             fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError) as exc:
+            # Windows can report an O_EXCL collision as EACCES while another
+            # thread owns or has just released the lock file. Retry under the
+            # same deadline; checking for the file here would introduce a
+            # release-before-observation race. POSIX permission errors remain
+            # immediate failures.
+            permission_collision = isinstance(exc, PermissionError)
+            if permission_collision and not _WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION:
+                raise
             try:
                 age = time.time() - lock.stat().st_mtime
                 if age > STALE_LOCK_SECONDS:
@@ -194,6 +222,8 @@ def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterato
             except OSError:
                 pass
             if time.monotonic() > deadline:
+                if permission_collision and not lock.exists():
+                    raise exc
                 raise LedgerError(
                     f"could not acquire ledger lock at {lock} within {timeout}s. "
                     "Another CONCLAVE process may be appending."
@@ -214,6 +244,7 @@ def exclusive_lock(path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterato
 
 
 # -- reading ---------------------------------------------------------------
+
 
 def ledger_path(ws: Workspace) -> Path:
     return ws.ledger_path
@@ -253,6 +284,7 @@ def chain_hash(ws: Workspace) -> str | None:
 
 # -- verification ----------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Defect:
     code: str
@@ -285,7 +317,9 @@ def verify(ws: Workspace) -> VerificationReport:
     report.entry_count = len(lines)
 
     if not lines:
-        report.add("empty-ledger", "ledger is absent or empty; run 'conclave ledger init'")
+        report.add(
+            "empty-ledger", "ledger is absent or empty; run 'conclave ledger init'"
+        )
         return report
 
     events: list[dict[str, Any]] = []
@@ -306,60 +340,95 @@ def verify(ws: Workspace) -> VerificationReport:
 
         schema = event.get("schema_version")
         if schema not in SUPPORTED_SCHEMA_VERSIONS:
-            report.add("unsupported-schema-version",
-                       f"schema_version {schema!r} is not supported by this build", i)
+            report.add(
+                "unsupported-schema-version",
+                f"schema_version {schema!r} is not supported by this build",
+                i,
+            )
 
         if event.get("event_type") not in ALL_EVENT_TYPES:
-            report.add("unknown-event-type",
-                       f"event_type {event.get('event_type')!r} is not recognised", i)
+            report.add(
+                "unknown-event-type",
+                f"event_type {event.get('event_type')!r} is not recognised",
+                i,
+            )
 
         authority = event.get("authority_level")
         if authority not in AUTHORITY_LEVELS:
-            report.add("invalid-authority-level",
-                       f"authority_level {authority!r} is not one of {list(AUTHORITY_LEVELS)}", i)
-        elif authority == "advisory_agent" and \
-                event.get("event_type") not in ADVISORY_PERMITTED_EVENTS:
-            report.add("forbidden-advisory-authority",
-                       f"an advisory agent cannot be the actor for "
-                       f"{event.get('event_type')!r}; no advisory agent approves, ratifies, "
-                       "commissions or merges anything", i)
-        if event.get("event_type") in HUMAN_PRINCIPAL_EVENTS and \
-                authority != "human_principal":
-            report.add("human-authority-required",
-                       f"{event.get('event_type')!r} requires authority_level "
-                       "'human_principal'", i)
-        if event.get("event_type") in HUMAN_PRINCIPAL_EVENTS and \
-                authority == "human_principal":
+            report.add(
+                "invalid-authority-level",
+                f"authority_level {authority!r} is not one of {list(AUTHORITY_LEVELS)}",
+                i,
+            )
+        elif (
+            authority == "advisory_agent"
+            and event.get("event_type") not in ADVISORY_PERMITTED_EVENTS
+        ):
+            report.add(
+                "forbidden-advisory-authority",
+                f"an advisory agent cannot be the actor for "
+                f"{event.get('event_type')!r}; no advisory agent approves, ratifies, "
+                "commissions or merges anything",
+                i,
+            )
+        if (
+            event.get("event_type") in HUMAN_PRINCIPAL_EVENTS
+            and authority != "human_principal"
+        ):
+            report.add(
+                "human-authority-required",
+                f"{event.get('event_type')!r} requires authority_level "
+                "'human_principal'",
+                i,
+            )
+        if (
+            event.get("event_type") in HUMAN_PRINCIPAL_EVENTS
+            and authority == "human_principal"
+        ):
             try:
                 configured_principal = ws.load_config().get("principal")
             except Exception:
                 configured_principal = None
             if not configured_principal or event.get("actor") != configured_principal:
-                report.add("wrong-human-principal",
-                           f"actor {event.get('actor')!r} is not the configured workspace "
-                           f"principal {configured_principal!r}", i)
+                report.add(
+                    "wrong-human-principal",
+                    f"actor {event.get('actor')!r} is not the configured workspace "
+                    f"principal {configured_principal!r}",
+                    i,
+                )
 
     # -- genesis
-    genesis_positions = [i for i, e in enumerate(events, start=1)
-                         if e.get("event_type") == GENESIS_EVENT]
+    genesis_positions = [
+        i for i, e in enumerate(events, start=1) if e.get("event_type") == GENESIS_EVENT
+    ]
     if not genesis_positions:
         report.add("missing-genesis", f"no {GENESIS_EVENT} entry found")
     else:
         if len(genesis_positions) > 1:
-            report.add("multiple-genesis",
-                       f"{len(genesis_positions)} genesis entries at lines "
-                       f"{genesis_positions}; exactly one is permitted")
+            report.add(
+                "multiple-genesis",
+                f"{len(genesis_positions)} genesis entries at lines "
+                f"{genesis_positions}; exactly one is permitted",
+            )
         if genesis_positions[0] != 1:
-            report.add("genesis-not-first",
-                       f"genesis appears at line {genesis_positions[0]}, not line 1")
+            report.add(
+                "genesis-not-first",
+                f"genesis appears at line {genesis_positions[0]}, not line 1",
+            )
         first = events[0]
         if first.get("event_type") == GENESIS_EVENT:
             if first.get("sequence") != 1:
-                report.add("genesis-bad-sequence",
-                           f"genesis sequence is {first.get('sequence')!r}, expected 1", 1)
+                report.add(
+                    "genesis-bad-sequence",
+                    f"genesis sequence is {first.get('sequence')!r}, expected 1",
+                    1,
+                )
             if first.get("previous_entry_hash") is not None:
-                report.add("genesis-has-previous",
-                           "genesis previous_entry_hash must be null", 1)
+                report.add(
+                    "genesis-has-previous",
+                    "genesis previous_entry_hash must be null",
+                    1,
+                )
 
     # -- sequence, linkage, hashes
     seen_ids: dict[str, int] = {}
@@ -370,36 +439,51 @@ def verify(ws: Workspace) -> VerificationReport:
         seq = event.get("sequence")
         if isinstance(seq, int):
             if seq in seen_sequences:
-                report.add("duplicate-sequence",
-                           f"sequence {seq} already used at line {seen_sequences[seq]}", i)
+                report.add(
+                    "duplicate-sequence",
+                    f"sequence {seq} already used at line {seen_sequences[seq]}",
+                    i,
+                )
             seen_sequences[seq] = i
             if seq != i:
-                report.add("sequence-gap",
-                           f"expected sequence {i}, found {seq}; sequences must be "
-                           "contiguous from 1", i)
+                report.add(
+                    "sequence-gap",
+                    f"expected sequence {i}, found {seq}; sequences must be "
+                    "contiguous from 1",
+                    i,
+                )
         else:
             report.add("invalid-sequence", f"sequence {seq!r} is not an integer", i)
 
         eid = event.get("event_id")
         if isinstance(eid, str):
             if eid in seen_ids:
-                report.add("duplicate-event-id",
-                           f"event_id {eid} already used at line {seen_ids[eid]}", i)
+                report.add(
+                    "duplicate-event-id",
+                    f"event_id {eid} already used at line {seen_ids[eid]}",
+                    i,
+                )
             seen_ids[eid] = i
 
         expected_hash = compute_entry_hash(event)
         if event.get("entry_hash") != expected_hash:
-            report.add("entry-hash-mismatch",
-                       f"entry_hash does not match the entry body "
-                       f"(recorded {event.get('entry_hash')}, computed {expected_hash}); "
-                       "the entry has been altered", i)
+            report.add(
+                "entry-hash-mismatch",
+                f"entry_hash does not match the entry body "
+                f"(recorded {event.get('entry_hash')}, computed {expected_hash}); "
+                "the entry has been altered",
+                i,
+            )
 
         if previous is not None:
             if event.get("previous_entry_hash") != previous.get("entry_hash"):
-                report.add("broken-chain",
-                           f"previous_entry_hash does not match the preceding entry "
-                           f"(expected {previous.get('entry_hash')}, "
-                           f"found {event.get('previous_entry_hash')})", i)
+                report.add(
+                    "broken-chain",
+                    f"previous_entry_hash does not match the preceding entry "
+                    f"(expected {previous.get('entry_hash')}, "
+                    f"found {event.get('previous_entry_hash')})",
+                    i,
+                )
         previous = event
 
     report.final_chain_hash = events[-1].get("entry_hash") if events else None
@@ -407,6 +491,7 @@ def verify(ws: Workspace) -> VerificationReport:
 
 
 # -- appending -------------------------------------------------------------
+
 
 def _write_line(path: Path, event: dict[str, Any]) -> None:
     """Append one line and force it to disk before reporting success."""
@@ -443,15 +528,16 @@ def append_event(
         raise LedgerError(f"unknown event_type {event_type!r}")
     if authority_level not in AUTHORITY_LEVELS:
         raise LedgerError(f"invalid authority_level {authority_level!r}")
-    if authority_level == "advisory_agent" and event_type not in ADVISORY_PERMITTED_EVENTS:
+    if (
+        authority_level == "advisory_agent"
+        and event_type not in ADVISORY_PERMITTED_EVENTS
+    ):
         raise LedgerError(
             f"an advisory agent cannot be the actor for {event_type!r}. "
             "No advisory agent approves, ratifies, commissions or merges anything."
         )
     if event_type in HUMAN_PRINCIPAL_EVENTS and authority_level != "human_principal":
-        raise LedgerError(
-            f"{event_type!r} requires authority_level 'human_principal'"
-        )
+        raise LedgerError(f"{event_type!r} requires authority_level 'human_principal'")
     if event_type in HUMAN_PRINCIPAL_EVENTS:
         configured_principal = ws.load_config().get("principal")
         if not configured_principal or actor != configured_principal:
@@ -465,8 +551,9 @@ def append_event(
     subject_refs = sorted(subject_refs or [])
     artifact_hashes = dict(sorted((artifact_hashes or {}).items()))
     payload = payload or {}
-    event_id = derive_event_id(event_type, actor, authority_level,
-                               subject_refs, artifact_hashes, payload)
+    event_id = derive_event_id(
+        event_type, actor, authority_level, subject_refs, artifact_hashes, payload
+    )
 
     path = ledger_path(ws)
     with exclusive_lock(path):
@@ -476,8 +563,8 @@ def append_event(
             report = verify(ws)
             if not report.ok:
                 raise LedgerError(
-                    "refusing to append: the existing ledger does not verify.\n  " +
-                    "\n  ".join(str(d) for d in report.defects[:5])
+                    "refusing to append: the existing ledger does not verify.\n  "
+                    + "\n  ".join(str(d) for d in report.defects[:5])
                 )
             for e in existing:
                 if e.get("event_id") == event_id:
@@ -551,10 +638,30 @@ SNAPSHOT_CLASSES: tuple[tuple[str, str, str, bool], ...] = (
     ("broker_egress_authorizations", "signing/broker-authorizations", "*.json", False),
     ("sandbox_broker_attempts", "signing/broker-attempts", "*.json", False),
     ("sandbox_broker_receipts", "signing/broker-receipts", "*.json", False),
-    ("broker_recovery_authorizations", "signing/broker-recovery-authorizations", "*.json", False),
-    ("sandbox_broker_recovery_attempts", "signing/broker-recovery-attempts", "*.json", False),
-    ("broker_recovery_dispositions", "signing/broker-recovery-dispositions", "*.json", False),
-    ("sandbox_broker_conformance_reports", "signing/conformance-reports", "*.json", False),
+    (
+        "broker_recovery_authorizations",
+        "signing/broker-recovery-authorizations",
+        "*.json",
+        False,
+    ),
+    (
+        "sandbox_broker_recovery_attempts",
+        "signing/broker-recovery-attempts",
+        "*.json",
+        False,
+    ),
+    (
+        "broker_recovery_dispositions",
+        "signing/broker-recovery-dispositions",
+        "*.json",
+        False,
+    ),
+    (
+        "sandbox_broker_conformance_reports",
+        "signing/conformance-reports",
+        "*.json",
+        False,
+    ),
     ("diagnostics_results", "diagnostics", "*.json", False),
     ("ledger_checkpoints", "ledger", "checkpoint-*.json", False),
 )
@@ -579,11 +686,13 @@ def build_snapshot_manifest(ws: Workspace) -> dict[str, Any]:
         for p in sorted(base.glob(pattern)):
             if not p.is_file():
                 continue
-            entries.append({
-                "path": p.relative_to(ws.root).as_posix(),
-                "content_hash": hash_file(p, binary=binary),
-                "hashing": "binary" if binary else "kos-canonical-text-v1",
-            })
+            entries.append(
+                {
+                    "path": p.relative_to(ws.root).as_posix(),
+                    "content_hash": hash_file(p, binary=binary),
+                    "hashing": "binary" if binary else "kos-canonical-text-v1",
+                }
+            )
         if entries:
             classes[name] = entries
             total += len(entries)
@@ -606,14 +715,20 @@ def initialise(ws: Workspace, config: dict[str, Any]) -> list[dict[str, Any]]:
         "authority_policy": config.get("authority", {}),
         "hashing_algorithm": (config.get("hashing") or {}).get("algorithm", "sha256"),
         "canonicalisation": (config.get("hashing") or {}).get(
-            "canonicalisation", "kos-canonical-text-v1"),
+            "canonicalisation", "kos-canonical-text-v1"
+        ),
         "kos_access": config.get("kos_access", "read-only"),
         "kos_repository": config.get("kos_repository"),
         "ledger_schema_version": LEDGER_SCHEMA_VERSION,
     }
     genesis, _ = append_event(
-        ws, event_type=GENESIS_EVENT, actor="conclave", authority_level="system",
-        subject_refs=[str(ws.root)], payload=genesis_payload, allow_genesis=True,
+        ws,
+        event_type=GENESIS_EVENT,
+        actor="conclave",
+        authority_level="system",
+        subject_refs=[str(ws.root)],
+        payload=genesis_payload,
+        allow_genesis=True,
     )
 
     manifest = build_snapshot_manifest(ws)

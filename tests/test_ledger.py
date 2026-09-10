@@ -579,6 +579,40 @@ def test_stale_lock_is_reclaimed(live):
     assert created is True
 
 
+def test_permission_error_for_existing_exclusive_lock_is_contention(live, monkeypatch):
+    lock = live.ledger_path.with_name(live.ledger_path.name + ".lock")
+    real_open = os.open
+    injected = False
+
+    def permission_collision(path, flags, *args, **kwargs):
+        nonlocal injected
+        if not injected and os.fspath(path) == os.fspath(lock):
+            injected = True
+            descriptor = real_open(path, flags, *args, **kwargs)
+            os.close(descriptor)
+            lock.unlink()
+            raise PermissionError(13, "simulated Windows O_EXCL collision", path)
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(ledger, "_WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION", True)
+    monkeypatch.setattr(os, "open", permission_collision)
+    with exclusive_lock(live.ledger_path, timeout=1):
+        assert lock.exists()
+    assert injected
+    assert not lock.exists()
+
+
+def test_non_windows_permission_error_is_not_treated_as_contention(live, monkeypatch):
+    def denied(*_args, **_kwargs):
+        raise PermissionError(13, "simulated genuine permission failure")
+
+    monkeypatch.setattr(ledger, "_WINDOWS_O_EXCL_PERMISSION_IS_CONTENTION", False)
+    monkeypatch.setattr(os, "open", denied)
+    with pytest.raises(PermissionError, match="genuine permission failure"):
+        with exclusive_lock(live.ledger_path, timeout=0.01):
+            pass
+
+
 def test_fsync_path_exercised(live, monkeypatch):
     calls = []
     real = os.fsync

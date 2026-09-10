@@ -61,14 +61,24 @@ SUBDIRS = (
     "github/attempt-claims",
     "github/lease-evidence",
     "github/observations",
+    "github/base-tree-closures",
+    "github/publication-plans",
+    "github/publication-step-records",
+    "github/publication-receipts",
+    "github/publication-reconciliations",
+    "github/publication-fixture-evidence",
+    "github/publication-fixture-reconciliations",
     "diagnostics",
 )
 
 
 def utcnow() -> str:
     """ISO 8601, UTC, second precision. One timestamp format everywhere."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
-        "+00:00", "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
     )
 
 
@@ -229,6 +239,36 @@ class Workspace:
     @property
     def github_observations_dir(self) -> Path:
         return self.root / "github" / "observations"
+
+    @property
+    def github_base_tree_closures_dir(self) -> Path:
+        return self.root / "github" / "base-tree-closures"
+
+    @property
+    def github_publication_plans_dir(self) -> Path:
+        return self.root / "github" / "publication-plans"
+
+    @property
+    def github_publication_step_records_dir(self) -> Path:
+        return self.root / "github" / "publication-step-records"
+
+    @property
+    def github_publication_receipts_dir(self) -> Path:
+        return self.root / "github" / "publication-receipts"
+
+    @property
+    def github_publication_reconciliations_dir(self) -> Path:
+        return self.root / "github" / "publication-reconciliations"
+
+    @property
+    def github_publication_fixture_evidence_dir(self) -> Path:
+        """Attempt-scoped, offline-only Stage 21B transcript evidence."""
+        return self.root / "github" / "publication-fixture-evidence"
+
+    @property
+    def github_publication_fixture_reconciliations_dir(self) -> Path:
+        """Offline-only Stage 21B reconciliation evidence."""
+        return self.root / "github" / "publication-fixture-reconciliations"
 
     @property
     def diagnostics_dir(self) -> Path:
