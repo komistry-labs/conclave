@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import io
 import json
 import sys
@@ -14,10 +15,12 @@ import tools.conformance_evidence as evidence_tool
 
 from tools.conformance_evidence import (
     MAX_JUNIT_BYTES,
+    REQUIRED_PUBLICATION_MEMBERS,
     digest,
     junit_report,
     main,
     scan_package,
+    validate_probe,
 )
 
 
@@ -137,6 +140,19 @@ def _package(path: Path, name: str, data: bytes) -> None:
             archive.addfile(info, io.BytesIO(data))
 
 
+def _publication_wheel(path: Path) -> dict[str, dict[str, str]]:
+    inventory: dict[str, dict[str, str]] = {}
+    with zipfile.ZipFile(path, "w") as archive:
+        for index, suffix in enumerate(REQUIRED_PUBLICATION_MEMBERS, start=1):
+            content = f"value = {index}\n".encode()
+            archive.writestr(suffix, content)
+            inventory[suffix] = {
+                "member": suffix,
+                "sha256": "sha256:" + hashlib.sha256(content).hexdigest(),
+            }
+    return inventory
+
+
 @pytest.mark.parametrize("suffix", ["pkg.whl", "pkg.tar.gz"])
 @pytest.mark.parametrize(
     ("name", "data", "code"),
@@ -213,7 +229,7 @@ def test_final_index_binds_probe_exactly_and_never_self_references(
         dist / "conclave-0.8.0-py3-none-any.whl",
         dist / "conclave-0.8.0.tar.gz",
     )
-    _package(wheel, "conclave/module.py", b"value = 1\n")
+    required_inventory = _publication_wheel(wheel)
     _package(sdist, "conclave-0.8.0/src/conclave/module.py", b"value = 1\n")
     junit = _junit(tmp_path, '<testcase classname="tests.test_ok" name="test_ok"/>')
     probe = output / "installed-wheel-probe.json"
@@ -223,6 +239,11 @@ def test_final_index_binds_probe_exactly_and_never_self_references(
                 "schema": "conclave-installed-wheel-probe/0.8.0",
                 "status": "PASS",
                 "wheel_sha256": digest(wheel),
+                "package_inventory": {
+                    "member_count": len(REQUIRED_PUBLICATION_MEMBERS),
+                    "required_publication_members": required_inventory,
+                    "prohibited_members": [],
+                },
                 "commands": [
                     {
                         "name": "help",
@@ -239,15 +260,14 @@ def test_final_index_binds_probe_exactly_and_never_self_references(
                         "stderr": "",
                     },
                     {
-                        "name": "github_adapter_import",
+                        "name": "github_publication_probe",
                         "command": [
                             "python",
                             "-I",
-                            "-c",
-                            "import conclave.github_foundation; import conclave.github_operation",
+                            "external-publication-fixture.py",
                         ],
                         "returncode": 0,
-                        "stdout": "github-adapter-import-ok",
+                        "stdout": "github-publication-probe-ok",
                         "stderr": "",
                     },
                 ],
@@ -280,3 +300,68 @@ def test_final_index_binds_probe_exactly_and_never_self_references(
     monkeypatch.setattr(sys, "argv", argv)
     assert main() == 0
     assert (output / "evidence-index.json").read_bytes() == first
+
+
+def test_probe_rejects_missing_forged_inventory_and_legacy_inline_shape(
+    tmp_path: Path,
+) -> None:
+    wheel = tmp_path / "conclave-0.8.0-py3-none-any.whl"
+    required = _publication_wheel(wheel)
+    base = {
+        "schema": "conclave-installed-wheel-probe/0.8.0",
+        "status": "PASS",
+        "wheel_sha256": digest(wheel),
+        "package_inventory": {
+            "member_count": len(REQUIRED_PUBLICATION_MEMBERS),
+            "required_publication_members": required,
+            "prohibited_members": [],
+        },
+        "commands": [
+            {
+                "name": "help",
+                "command": ["conclave", "--help"],
+                "returncode": 0,
+                "stdout": "Usage",
+                "stderr": "",
+            },
+            {
+                "name": "version",
+                "command": ["conclave", "version"],
+                "returncode": 0,
+                "stdout": "conclave 0.8.0\nschema  task-packet/0.1.0",
+                "stderr": "",
+            },
+            {
+                "name": "github_publication_probe",
+                "command": ["python", "-I", "external-publication-fixture.py"],
+                "returncode": 0,
+                "stdout": "github-publication-probe-ok",
+                "stderr": "",
+            },
+        ],
+    }
+    probe = tmp_path / "probe.json"
+    for mutation, message in (
+        ({"package_inventory": None}, "inventory is missing"),
+        (
+            {"package_inventory": {**base["package_inventory"], "member_count": 1}},
+            "does not match",
+        ),
+        (
+            {
+                "package_inventory": {
+                    **base["package_inventory"],
+                    "prohibited_members": ["tests/evil.py"],
+                }
+            },
+            "does not match",
+        ),
+    ):
+        probe.write_text(json.dumps({**base, **mutation}), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            validate_probe(probe, wheel)
+    legacy = json.loads(json.dumps(base))
+    legacy["commands"][2]["command"] = ["python", "-I", "-c", "import conclave"]
+    probe.write_text(json.dumps(legacy), encoding="utf-8")
+    with pytest.raises(ValueError, match="command is invalid"):
+        validate_probe(probe, wheel)

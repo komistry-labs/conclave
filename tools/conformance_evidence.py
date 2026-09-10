@@ -33,6 +33,10 @@ RUNTIME_FILES = (
     "src/conclave/sandbox_transport.py",
     "src/conclave/sandbox_recovery.py",
     "src/conclave/conformance.py",
+    "src/conclave/github_publication.py",
+    "src/conclave/github_publication_records.py",
+    "src/conclave/github_publication_engine.py",
+    "src/conclave/github_publication_reconciliation.py",
 )
 TRANSPORT_FILES = RUNTIME_FILES[1:]
 MAX_JUNIT_BYTES = 16 * 1024 * 1024
@@ -40,6 +44,12 @@ MAX_ARCHIVE_MEMBERS = 256
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 SCANNER_VERSION = "conclave-secret-member-scan/0.8.0"
+REQUIRED_PUBLICATION_MEMBERS = (
+    "conclave/github_publication.py",
+    "conclave/github_publication_engine.py",
+    "conclave/github_publication_reconciliation.py",
+    "conclave/github_publication_records.py",
+)
 PLATFORM_IDS = {
     "windows-latest-py3.12",
     "ubuntu-latest-py3.12",
@@ -279,20 +289,45 @@ def junit_report(path: Path, platform_id: str) -> dict:
     }
 
 
-def validate_probe(path: Path, wheel_hash: str) -> dict:
+def _exact_wheel_publication_inventory(
+    wheel: Path,
+) -> tuple[int, dict[str, dict[str, str]]]:
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            names = tuple(info.filename for info in archive.infolist())
+            if len(names) != len(set(names)):
+                raise ValueError("wheel contains duplicate members")
+            inventory: dict[str, dict[str, str]] = {}
+            for suffix in REQUIRED_PUBLICATION_MEMBERS:
+                matches = tuple(name for name in names if name.endswith(suffix))
+                if len(matches) != 1:
+                    raise ValueError("wheel lacks exact Stage 21B runtime inventory")
+                member = matches[0]
+                inventory[suffix] = {
+                    "member": member,
+                    "sha256": "sha256:"
+                    + hashlib.sha256(archive.read(member)).hexdigest(),
+                }
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ValueError("wheel inventory is unreadable") from exc
+    return len(names), inventory
+
+
+def validate_probe(path: Path, wheel: Path) -> dict:
     raw = path.read_bytes()
     if not raw or len(raw) > 1024 * 1024:
         raise ValueError("installed-wheel probe is empty or oversized")
     value = json.loads(raw)
     if value.get("schema") != "conclave-installed-wheel-probe/0.8.0":
         raise ValueError("installed-wheel probe schema is invalid")
+    wheel_hash = digest(wheel)
     if value.get("status") != "PASS" or value.get("wheel_sha256") != wheel_hash:
         raise ValueError("installed-wheel probe did not pass for the exact wheel")
     commands = value.get("commands")
     if not isinstance(commands, list) or [c.get("name") for c in commands] != [
         "help",
         "version",
-        "github_adapter_import",
+        "github_publication_probe",
     ]:
         raise ValueError("installed-wheel probe commands are incomplete")
     if any(c.get("returncode") != 0 or c.get("stderr") != "" for c in commands):
@@ -301,8 +336,24 @@ def validate_probe(path: Path, wheel_hash: str) -> dict:
         raise ValueError("installed-wheel help output is empty")
     if commands[1].get("stdout") != "conclave 0.8.0\nschema  task-packet/0.1.0":
         raise ValueError("installed-wheel version output is invalid")
-    if commands[2].get("stdout") != "github-adapter-import-ok":
-        raise ValueError("installed-wheel GitHub adapter import is invalid")
+    if commands[2].get("stdout") != "github-publication-probe-ok":
+        raise ValueError("installed-wheel GitHub publication probe is invalid")
+    if commands[2].get("command") != [
+        "python",
+        "-I",
+        "external-publication-fixture.py",
+    ]:
+        raise ValueError("installed-wheel publication probe command is invalid")
+    actual_count, actual_required = _exact_wheel_publication_inventory(wheel)
+    package_inventory = value.get("package_inventory")
+    if not isinstance(package_inventory, dict):
+        raise ValueError("installed-wheel package inventory is missing")
+    if (
+        package_inventory.get("member_count") != actual_count
+        or package_inventory.get("required_publication_members") != actual_required
+        or package_inventory.get("prohibited_members") != []
+    ):
+        raise ValueError("installed-wheel package inventory does not match the wheel")
     return value
 
 
@@ -380,7 +431,7 @@ def main() -> int:
     emit(output / "secret-scan.json", secret_report)
     emit(output / "static-scan.json", static_report)
     emit(output / "test-report.json", test_report)
-    validate_probe(args.probe.resolve(), digest(wheels[0]))
+    validate_probe(args.probe.resolve(), wheels[0])
     expected_probe = output / "installed-wheel-probe.json"
     if args.probe.resolve() != expected_probe:
         expected_probe.write_bytes(args.probe.resolve().read_bytes())
