@@ -1,7 +1,7 @@
 # CONCLAVE Current Project State
 
 Last verified: 2026-09-11
-Status class: `GOVERNED_MAIN_BASELINE / INCREMENT_21_ERRATUM_0001_MERGED / STAGE_21C_REPLACEMENT_COUNCIL_APPROVED`
+Status class: `GOVERNED_MAIN_BASELINE / INCREMENT_21_ERRATUM_0001_MERGED / STAGE_21C_REPLACEMENT_FROZEN_LOCAL`
 
 ## 1. Product baseline
 
@@ -312,18 +312,24 @@ disposition remains unchanged so that the exact reviewed bytes remain stable;
 this CPS and Council Review 0008 supply the later current disposition.
 
 Arthur authorized Council review followed by commit and push of the bounded
-governance payload on `docs/increment-21c-readiness-protocol`. At the time this
-CPS was prepared, publication was the next authorized operation and had not
-yet occurred. This approval does not freeze the protocol. No freeze is
-available for the rejected Review 0007 candidate.
+governance payload on `docs/increment-21c-readiness-protocol`. That publication
+completed at commit `2d8ea47a5513a3331bbf41c41035c0f8ab1f301b`, tree
+`60ebe6c5745c4399189165a1621aa9047a1f4960`; the remote branch was verified at
+the same exact commit.
 
-The next governed gate after publication is Arthur's exact-object freeze
-decision. A later freeze and separate implementation authority are required
-before Stage 21C runtime or test work. Pull request, merge, branch-protection
-change, administrator exception, implementation, credentials, live GitHub
-operations, deployment, production use, KOS changes, IDM changes, signing,
-identity allocation, and membership activation remain unauthorized. Stage 21D
-also remains outside the authority recorded here.
+Arthur then approved the next governed step. The exact replacement protocol
+identified above is frozen without changing its reviewed bytes. The local
+`INCREMENT-21C-PROTOCOL-FREEZE-RECORD.md` supplies the freeze disposition. No
+freeze is available for the rejected Review 0007 candidate.
+
+The next governed gate is separate authorization to commit and push the freeze
+record and this reconciled CPS. Pull-request creation remains a later,
+separately authorized operation. Separate implementation authority is required
+before Stage 21C runtime or test work. Merge, branch-protection change,
+administrator exception, implementation, credentials, live GitHub operations,
+deployment, production use, KOS changes, IDM changes, signing, identity
+allocation, and membership activation remain unauthorized. Stage 21D also
+remains outside the authority recorded here.
 
 ## 6. Session-start checklist
 
@@ -337,7 +343,6 @@ Before continuing work:
 3. preserve the distinction between protocol drafting, protocol freeze,
    implementation, readiness evidence, exact human authorization, merge
    execution, and production authority; and
-4. after the authorized governance publication, obtain Arthur's exact-object
-   freeze decision before any implementation preparation, and obtain separate
-   explicit authority before a pull request, merge, runtime or test change,
-   credential enablement, or live adapter operation.
+4. obtain separate explicit authority to commit and push the freeze payload,
+   then obtain another explicit authority before a pull request, merge,
+   runtime or test change, credential enablement, or live adapter operation.
