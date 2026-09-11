@@ -1,15 +1,20 @@
 # CONCLAVE Current Project State
 
 Last verified: 2026-09-11
-Status class: `GOVERNED_MAIN_BASELINE / INCREMENT_21_ERRATUM_0001_FROZEN_APPLIED_LOCAL`
+Status class: `GOVERNED_MAIN_BASELINE / INCREMENT_21_ERRATUM_0001_MERGED / STAGE_21C_REPLACEMENT_COUNCIL_APPROVED`
 
 ## 1. Product baseline
 
 - product version: `0.8.0`
 - Python floor: `>=3.12`
 - protected remote `main`:
-  `dda5961fa4aa0c67acafac2de230e9ce9313a03e`
-- active local branch: `docs/increment-21c-protocol`
+  `24f615fa6b6b2d25a2b03161c719f226f4f20f84`
+- protected `main` tree:
+  `1a1eec05cea9b740ef84f8981195d662d7c1c72b`
+- active local branch: `docs/increment-21c-readiness-protocol`
+- merged Increment 21 Erratum 0001 pull request: `#21`
+- accepted Increment 21 Erratum 0001 pull-request head:
+  `af596f92ee060c8d80433f2095d2034320ea8dff`
 - merged Stage 21B pull request: `#20`
 - accepted Stage 21B pull-request head:
   `c6a3a2bc0aea7afb6135d13b25593d905299d3a7`
@@ -18,16 +23,30 @@ Status class: `GOVERNED_MAIN_BASELINE / INCREMENT_21_ERRATUM_0001_FROZEN_APPLIED
 - accepted implementation tree:
   `7540069356b5fe0f627dba7822e007652c3e5878`
 
-The Stage 21B branch was merged by a normal merge commit after exact-head
-verification. This CPS reconciliation begins Stage 21C at the protocol layer
+The Stage 21B branch and the later Increment 21 Erratum 0001 governance branch
+were each merged by a normal merge commit after exact-head verification. This
+CPS reconciliation begins replacement Stage 21C at the protocol-drafting layer
 only; it changes no runtime or test file and grants no implementation or live
 operation authority.
 
 ## 2. Current increment disposition
 
 Increment 21's master protocol, Stage 21A, the Stage 21B protocol, Stage 21B
-Erratum 0001, and the corrected Stage 21B implementation are present on the
-current protected `main` baseline.
+Erratum 0001, the corrected Stage 21B implementation, and frozen Increment 21
+Erratum 0001 are present on the current protected `main` baseline. Increment 21
+Erratum 0001 controls the Stage 21C human-merge split: CONCLAVE may prepare
+read-only readiness evidence and later observe a human-performed merge, but it
+has no merge mutation capability.
+
+Increment 21 Erratum 0001 was merged through PR #21 at exact head
+`af596f92ee060c8d80433f2095d2034320ea8dff`, producing protected `main` merge
+commit `24f615fa6b6b2d25a2b03161c719f226f4f20f84`. Its frozen protocol bytes remain
+SHA-256 `a0fa63884be7970e9c0463014b1091f118bc32d0702fc7ebb5402a8410a5c742`
+and Git blob `acd0556124be766ec600b63519408952297a582e`.
+
+The successful post-merge workflow run is `34559473241`. Windows/Python 3.12,
+Ubuntu/Python 3.12, Ubuntu/Python 3.13, and macOS/Python 3.12 all passed and
+published the four expected conformance artifacts.
 
 Corrected Stage 21B implementation is now:
 
@@ -96,15 +115,24 @@ remain enabled for Windows/Python 3.12, Ubuntu/Python 3.13, and macOS/Python
 stale-review dismissal remains enabled; and force pushes and deletion remain
 disabled. No protection gap remains.
 
+For PR #21, Arthur authorized the same bounded one-time review-count exception
+for that pull request only. The review count was restored to `1` immediately
+after the merge attempt. Before-and-after complete protection snapshots were
+identical at SHA-256
+`0286817ad9896365643d68e54055f2c1d4a285f3640180566bd3f927171532a7`;
+no other protection field changed, no other merge occurred in the window, and
+no protection gap remains. Post-merge workflow run `34559473241` passed all
+four required jobs and published all four expected conformance artifacts.
+
 CONCLAVE provides bounded capability and evidence. KOS remains external and
 retains authority.
 
 ## 5. Next governed gate
 
-Stage 21B is closed. Stage 21C has begun at protocol drafting only under the
-frozen Increment 21 master protocol. Its purpose is to define exact-head
+Stage 21B is closed. Stage 21C began at protocol drafting under the frozen
+Increment 21 master protocol. Its purpose was initially to define exact-head
 readiness evaluation and a separately human-authorized, single-attempt normal
-merge that preserves all continuing protections and has no administrator
+merge that preserved all continuing protections and had no administrator
 exception or bypass path.
 
 Council Review 0001 rejected the first exact draft unanimously at SHA-256
@@ -217,8 +245,8 @@ master explicitly selects Stage 21C merge permission, endpoint, intent,
 attempt, receipt, and execution. The split therefore requires a governed
 master erratum rather than reinterpretation of the frozen text.
 
-`INCREMENT-21-ERRATUM-0001-STAGE-21C-HUMAN-MERGE-SPLIT.md` is now a local
-draft correction candidate. It supersedes only the master clauses that grant
+`INCREMENT-21-ERRATUM-0001-STAGE-21C-HUMAN-MERGE-SPLIT.md` was initially a
+local draft correction candidate. It supersedes only the master clauses that grant
 or presuppose adapter-issued merge execution; preserves Stages 21A, 21B, and
 21D; removes every Stage 21C merge credential, permission, endpoint, transport,
 retry, and mutation path; assigns the normal protected merge to the configured
@@ -238,7 +266,7 @@ made by the external human client, and failed CONCLAVE readiness cannot prevent
 the human from authoring an authorization. One verdict-label consistency
 cleanup was also recorded.
 
-Bounded remediation has now corrected only those findings. The one-attempt
+Bounded remediation corrected only those findings. The one-attempt
 field is explicitly a human-governance instruction that CONCLAVE cannot
 observe, enforce, count, or attest; failed readiness now restricts only what
 CONCLAVE may accept, validate, retain as current, present, authorize, or do;
@@ -268,13 +296,32 @@ LF-terminated lines, without changing the frozen erratum bytes. Corrected Stage
 21C is therefore governed as a read-only readiness and human-merge-observation
 stage; CONCLAVE has no merge mutation capability under Increment 21.
 
-The next governed gate requires separate explicit authority either to commit
-and publish the bounded governance record set or to draft the replacement
-Stage 21C protocol under the frozen erratum. No replacement Stage 21C protocol
-has been drafted under it. No freeze is available for the rejected Review 0007
-candidate. Stage 21C
-implementation, credentials, live GitHub operations, commit, push, pull
-request, merge, deployment, production use, KOS changes, IDM changes, signing,
+PR #21 subsequently merged the exact frozen erratum governance payload into
+protected `main`. The merge and protection-restoration facts are recorded in
+§§1, 2, and 4 above. The erratum is therefore no longer merely local; it is the
+controlling published Stage 21C correction on the current baseline.
+
+The replacement protocol is
+`INCREMENT-21C-READINESS-AND-HUMAN-MERGE-OBSERVATION.md` at exact SHA-256
+`d3701754c7ab782835bc92db07c055509e415a69765373ed5cd30f250164b257`,
+Git blob `6553d2371c534e0c8159aa9a8ddd2fec964dc208`, 56,751 bytes, and 1,238
+LF-terminated lines. Five distinct Council seats independently reviewed those
+exact bytes and returned `5/5 PASS_EXACT_DRAFT`. The complete review is
+`INCREMENT-21C-COUNCIL-REVIEW-0008.md`. The candidate's own drafting-time
+disposition remains unchanged so that the exact reviewed bytes remain stable;
+this CPS and Council Review 0008 supply the later current disposition.
+
+Arthur authorized Council review followed by commit and push of the bounded
+governance payload on `docs/increment-21c-readiness-protocol`. At the time this
+CPS was prepared, publication was the next authorized operation and had not
+yet occurred. This approval does not freeze the protocol. No freeze is
+available for the rejected Review 0007 candidate.
+
+The next governed gate after publication is Arthur's exact-object freeze
+decision. A later freeze and separate implementation authority are required
+before Stage 21C runtime or test work. Pull request, merge, branch-protection
+change, administrator exception, implementation, credentials, live GitHub
+operations, deployment, production use, KOS changes, IDM changes, signing,
 identity allocation, and membership activation remain unauthorized. Stage 21D
 also remains outside the authority recorded here.
 
@@ -283,13 +330,14 @@ also remains outside the authority recorded here.
 Before continuing work:
 
 1. verify protected `main` at
-   `dda5961fa4aa0c67acafac2de230e9ce9313a03e`, the active branch, remote state,
+   `24f615fa6b6b2d25a2b03161c719f226f4f20f84`, the active branch, remote state,
    and working-tree status;
-2. read this file, the frozen Increment 21 master protocol, and the current
-   Stage 21C draft and any later freeze/review records;
+2. read this file, the frozen Increment 21 master protocol, the exact Stage 21C
+   replacement protocol, Council Review 0008, and any later freeze records;
 3. preserve the distinction between protocol drafting, protocol freeze,
    implementation, readiness evidence, exact human authorization, merge
    execution, and production authority; and
-4. obtain the next explicit authorization before committing or publishing the
-   protocol, changing runtime or tests, enabling credentials, or attempting a
-   live adapter operation.
+4. after the authorized governance publication, obtain Arthur's exact-object
+   freeze decision before any implementation preparation, and obtain separate
+   explicit authority before a pull request, merge, runtime or test change,
+   credential enablement, or live adapter operation.
