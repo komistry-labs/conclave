@@ -2,15 +2,18 @@
 
 ## Status
 
-Reconciled locally · frozen governance merged into protected `main` ·
+PR #24 publication reconciled · frozen governance present on protected `main` ·
 independent exact-head review preserved · post-merge CI and artifacts verified ·
-uncommitted · unpushed · not implemented or used
+this record prepared on the separately governed closeout branch · not
+implemented or used
 
 This record supplies the post-merge disposition for the immutable Stage 21C
 Control-Attestation Collection Protocol and its freeze record. It supersedes
-only their earlier publication-state statements. It does not alter their bytes,
-resolve an implementation design, or grant implementation or operational
-authority.
+only their earlier publication-state statements. Its own later Git publication
+state is determined from repository history and the protected branch, not from
+a mutable status assertion inside this file. It does not alter the frozen
+objects' bytes, resolve an implementation design, or grant implementation or
+operational authority.
 
 ## 1. Governed objects
 
@@ -188,11 +191,18 @@ protected `main`. They are the selected collection-procedure governance
 baseline eligible for a later, separately authorized implementation candidate.
 They have not been implemented, deployed, trusted, signed, or used.
 
-The immediate gate is separate authorization to commit and push this closeout
-record and reconciled CPS. After that publication, any Stage 21C implementation
-work requires new, explicitly bounded implementation authority. That later
-authority must preserve fixture- and loopback-only development unless a further
-decision separately authorizes credentials or live GitHub collection.
+This record and the reconciled CPS were prepared on branch
+`docs/increment-21c-collection-publication-closeout` for publication through
+PR #25. The live PR head, checks, review disposition, merge state, and protected
+`main` head must be verified from GitHub; this record does not self-attest its
+own publication.
+
+After successful closeout publication, the next substantive Stage 21C gate is
+separate authority for the offline two-key ceremony-plan protocol. Runtime or
+external-collector implementation remains later in the frozen §20 sequence and
+requires its own explicitly bounded authority. Any such development must remain
+fixture- and loopback-only unless a further decision separately authorizes
+credentials or live GitHub collection.
 
 This closeout does not authorize implementation, runtime or test changes,
 credentials, a GitHub App, token minting, key generation, signing, trust-store

@@ -1,17 +1,17 @@
 # CONCLAVE Current Project State
 
-Last verified: 2026-09-15
-Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_COLLECTION_PROTOCOL_MERGED / CLOSEOUT_DRAFTED / IMPLEMENTATION_NOT_AUTHORIZED`
+Last verified: 2026-09-16
+Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_COLLECTION_PROTOCOL_MERGED / IMPLEMENTATION_NOT_AUTHORIZED`
 
 ## 1. Product baseline
 
 - product version: `0.8.0`
 - Python floor: `>=3.12`
-- protected remote `main`:
+- reconciliation-source protected `main`:
   `f78d656e4b6c03d55d3f385c7d310399a3e45879`
-- protected `main` tree:
+- reconciliation-source `main` tree:
   `31a3d9b4bbaa955934d8938b857326503c42cfa2`
-- active local branch:
+- reconciliation preparation branch:
   `docs/increment-21c-collection-publication-closeout`
 - merged Stage 21C collection-protocol pull request: `#24`
 - accepted Stage 21C collection-protocol pull-request head:
@@ -391,21 +391,27 @@ frozen bytes must constrain the derived logical-read budget to at most `90` for
 both readiness and action-interval cycles, unless a future reviewed protocol
 revision changes the 96-envelope ceiling.
 
-The next governed gate is separate authorization to commit and push that
-post-merge closeout record and this reconciled CPS. After closeout publication,
-separate implementation authority is required before Stage 21C runtime or test
-work. Credentials, live GitHub operations, deployment, production use, KOS
-changes, IDM changes, signing, identity allocation, and membership activation
-remain unauthorized. Stage 21D also remains outside the authority recorded
-here.
+The post-merge closeout record and this reconciled CPS are carried by PR #25.
+Its live head, checks, review disposition, merge state, and resulting protected
+`main` head must be verified from GitHub; this CPS does not self-attest its own
+publication state.
+
+After successful closeout publication, the next substantive Stage 21C gate is
+separate authorization for the offline two-key ceremony-plan protocol. The
+remaining trust-authorization, external-collector, trust-store, runtime,
+cross-platform evidence, and implementation-review steps must then proceed in
+the frozen collection protocol's order under their own authorities. Credentials,
+live GitHub operations, deployment, production use, KOS changes, IDM changes,
+signing, identity allocation, and membership activation remain unauthorized.
+Stage 21D also remains outside the authority recorded here.
 
 ## 6. Session-start checklist
 
 Before continuing work:
 
-1. verify protected `main` at
-   `f78d656e4b6c03d55d3f385c7d310399a3e45879`, the active branch, remote state,
-   and working-tree status;
+1. verify the live protected `main` head, active branch, remote state, PR #25
+   disposition, and working-tree status; the reconciliation source was
+   `f78d656e4b6c03d55d3f385c7d310399a3e45879`;
 2. read this file, the frozen Increment 21 master protocol, the exact Stage 21C
    replacement protocol, Council Review 0008, the frozen control-attestation
    collection protocol, both Stage 21C freeze records, and the latest
@@ -413,6 +419,6 @@ Before continuing work:
 3. preserve the distinction between protocol drafting, protocol freeze,
    implementation, readiness evidence, exact human authorization, merge
    execution, and production authority; and
-4. obtain separate explicit authority to commit and push the post-merge
-   closeout payload, then obtain another explicit authority before any Stage
+4. verify publication of the post-merge closeout payload, then obtain separate
+   explicit authority for the offline ceremony-plan protocol before any Stage
    21C runtime or test change, credential enablement, or live adapter operation.
