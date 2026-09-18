@@ -1,17 +1,21 @@
 # CONCLAVE Current Project State
 
-Last verified: 2026-09-11
-Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_PROTOCOL_MERGED / IMPLEMENTATION_NOT_AUTHORIZED`
+Last verified: 2026-09-16
+Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_COLLECTION_PROTOCOL_MERGED / IMPLEMENTATION_NOT_AUTHORIZED`
 
 ## 1. Product baseline
 
 - product version: `0.8.0`
 - Python floor: `>=3.12`
-- protected remote `main`:
-  `dd3d1fe41fe1e7dc2056d546688ec0055d3c9cd0`
-- protected `main` tree:
-  `38d5f8336d4f80125640fe1f7673fb3aa482af01`
-- active local branch: `docs/increment-21c-post-merge-reconciliation`
+- reconciliation-source protected `main`:
+  `f78d656e4b6c03d55d3f385c7d310399a3e45879`
+- reconciliation-source `main` tree:
+  `31a3d9b4bbaa955934d8938b857326503c42cfa2`
+- reconciliation preparation branch:
+  `docs/increment-21c-collection-publication-closeout`
+- merged Stage 21C collection-protocol pull request: `#24`
+- accepted Stage 21C collection-protocol pull-request head:
+  `cae5eacbc85b0bea7fba384c7aaf685b8814b95b`
 - merged Stage 21C governance pull request: `#22`
 - accepted Stage 21C pull-request head:
   `fea27ac69e3d5c1f6d89cc59a72d5aa7ec6c8d1b`
@@ -26,11 +30,12 @@ Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_PROTOCOL_MERGED / IMPLEMENTATI
 - accepted implementation tree:
   `7540069356b5fe0f627dba7822e007652c3e5878`
 
-The Stage 21B branch, Increment 21 Erratum 0001 governance branch, and frozen
-replacement Stage 21C governance branch were each merged by a normal merge
-commit after exact-head verification. This CPS reconciliation records Stage
-21C protocol publication only; it changes no runtime or test file and grants
-no implementation or live-operation authority.
+The Stage 21B branch, Increment 21 Erratum 0001 governance branch, frozen
+replacement Stage 21C governance branch, and frozen Stage 21C collection-
+protocol branch were each merged by a normal merge commit after exact-head
+verification. This CPS reconciliation records collection-protocol publication
+only; it changes no runtime or test file and grants no implementation or live-
+operation authority.
 
 ## 2. Current increment disposition
 
@@ -62,6 +67,21 @@ implemented.
 Post-merge workflow run `34575665896` passed Windows/Python 3.12,
 Ubuntu/Python 3.12, Ubuntu/Python 3.13, and macOS/Python 3.12 and published all
 four expected, unexpired conformance artifacts.
+
+The frozen Stage 21C Control-Attestation Collection Protocol was merged through
+PR #24 at exact independently reviewed head
+`cae5eacbc85b0bea7fba384c7aaf685b8814b95b`, producing protected `main` merge
+commit `f78d656e4b6c03d55d3f385c7d310399a3e45879` and tree
+`31a3d9b4bbaa955934d8938b857326503c42cfa2`. Its exact bytes remain SHA-256
+`6ea468c1cdd3a4ac0befecd3ffa3c2c26cfb51218902fb3af20366e4dbbb91c2`
+and Git blob `f51fb51ed85e93b12ad6ecd74d44b56963b17faa`. Its freeze record remains
+SHA-256 `fb6a785fb600bb0860bb47347056a4aceec396266dc8fc9757b623c9951712d7`
+and Git blob `8bfc70d717dd58eb99da1bb787634a876f56a6ad`.
+
+Post-merge workflow run `34965432845` passed Windows/Python 3.12,
+Ubuntu/Python 3.12, Ubuntu/Python 3.13, and macOS/Python 3.12 and published all
+four expected, unexpired conformance artifacts. The collection protocol is
+published governance only; it has not been implemented or used.
 
 Corrected Stage 21B implementation is now:
 
@@ -146,6 +166,16 @@ the window. The count was restored immediately to `1`, and the normalized full
 protection snapshot before and after remained identical at SHA-256
 `2aa89863ec898a17d217f31894d627cf797ecf4ae4835f91bb4670a6202582f7`.
 No protection gap remains. Post-merge run `34575665896` passed all four jobs
+and published all four expected artifacts.
+
+For PR #24, Arthur accepted the independent `PASS_EXACT_HEAD` review at exact
+head `cae5eacbc85b0bea7fba384c7aaf685b8814b95b` and authorized a bounded
+one-time change of only `required_approving_review_count` from `1` to `0`. No
+other merge was performed during the window. The count was restored immediately
+to `1`, and the normalized full protection snapshot before and after remained
+identical at SHA-256
+`2aa89863ec898a17d217f31894d627cf797ecf4ae4835f91bb4670a6202582f7`.
+No protection gap remains. Post-merge run `34965432845` passed all four jobs
 and published all four expected artifacts.
 
 CONCLAVE provides bounded capability and evidence. KOS remains external and
@@ -351,26 +381,44 @@ head `fea27ac69e3d5c1f6d89cc59a72d5aa7ec6c8d1b` and merged through PR #22.
 The publication and protection-restoration evidence is preserved in
 `INCREMENT-21C-PROTOCOL-PUBLICATION-CLOSEOUT-0001.md`.
 
-The next governed gate is separate authorization to commit and push this
-post-merge closeout record and reconciled CPS. After closeout publication,
-separate implementation authority is required before Stage 21C runtime or test
-work. Credentials, live GitHub operations, deployment, production use, KOS
-changes, IDM changes, signing, identity allocation, and membership activation
-remain unauthorized. Stage 21D also remains outside the authority recorded
-here.
+The frozen Stage 21C Control-Attestation Collection Protocol and its freeze
+record were merged through PR #24. Their drafting-time publication statements
+remain immutable and are superseded by
+`INCREMENT-21C-CONTROL-ATTESTATION-COLLECTION-PROTOCOL-PUBLICATION-CLOSEOUT-0001.md`.
+The independent review's non-blocking envelope-capacity finding is preserved as
+an implementation prerequisite: any implementation candidate under the current
+frozen bytes must constrain the derived logical-read budget to at most `90` for
+both readiness and action-interval cycles, unless a future reviewed protocol
+revision changes the 96-envelope ceiling.
+
+The post-merge closeout record and this reconciled CPS are carried by PR #25.
+Its live head, checks, review disposition, merge state, and resulting protected
+`main` head must be verified from GitHub; this CPS does not self-attest its own
+publication state.
+
+After successful closeout publication, the next substantive Stage 21C gate is
+separate authorization for the offline two-key ceremony-plan protocol. The
+remaining trust-authorization, external-collector, trust-store, runtime,
+cross-platform evidence, and implementation-review steps must then proceed in
+the frozen collection protocol's order under their own authorities. Credentials,
+live GitHub operations, deployment, production use, KOS changes, IDM changes,
+signing, identity allocation, and membership activation remain unauthorized.
+Stage 21D also remains outside the authority recorded here.
 
 ## 6. Session-start checklist
 
 Before continuing work:
 
-1. verify protected `main` at
-   `dd3d1fe41fe1e7dc2056d546688ec0055d3c9cd0`, the active branch, remote state,
-   and working-tree status;
+1. verify the live protected `main` head, active branch, remote state, PR #25
+   disposition, and working-tree status; the reconciliation source was
+   `f78d656e4b6c03d55d3f385c7d310399a3e45879`;
 2. read this file, the frozen Increment 21 master protocol, the exact Stage 21C
-   replacement protocol, Council Review 0008, and any later freeze records;
+   replacement protocol, Council Review 0008, the frozen control-attestation
+   collection protocol, both Stage 21C freeze records, and the latest
+   publication closeout records;
 3. preserve the distinction between protocol drafting, protocol freeze,
    implementation, readiness evidence, exact human authorization, merge
    execution, and production authority; and
-4. obtain separate explicit authority to commit and push the post-merge
-   closeout payload, then obtain another explicit authority before any Stage
+4. verify publication of the post-merge closeout payload, then obtain separate
+   explicit authority for the offline ceremony-plan protocol before any Stage
    21C runtime or test change, credential enablement, or live adapter operation.
