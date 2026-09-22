@@ -1,18 +1,20 @@
 # CONCLAVE Current Project State
 
-Last verified: 2026-09-22
-Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_FACTUAL_PROFILE_ADOPTED / IMPLEMENTATION_NOT_AUTHORIZED`
+Last verified: 2026-09-23
+Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_FACTUAL_PROFILE_MERGED / FIXTURE_IMPLEMENTATION_UNDER_REVIEW`
 
 ## 1. Product baseline
 
 - product version: `0.8.0`
 - Python floor: `>=3.12`
 - reconciliation-source protected `main`:
-  `154394c570a9919fc00b7c00779f565f742508e2` (merge of PR #25)
+  `276b0f708f124e0a242b66db1167e4699ae84575` (merge of PR #26)
 - reconciliation-source `main` tree:
-  `dfbea0b2dc9bcaa88fc24d340acebfd66e094654`
+  `6af1f2b1f44443e348b52d381e85d47f8a509a33`
 - reconciliation preparation branch:
-  `docs/increment-21c-factual-profile-adoption`
+  `feat/increment-21c-factual-assistant`
+- fixture-only implementation: `INCREMENT-21C-IMPLEMENTATION-0001.md`
+  (see §5, 2026-09-23 reconciliation)
 - adopted Stage 21C profile: factual PR assistant, SHA-256
   `ed45fb9f2e1dfc8d8e9f542d71b8e67678aafe1d99120f209f5cb3b1891ab962`,
   issued by Arthur 2026-09-22 (see §5, 2026-09-22 reconciliation)
@@ -469,20 +471,47 @@ Credentials, live GitHub operations, deployment, production use, KOS and IDM
 changes, signing, identity allocation, membership activation and Stage 21D
 remain unauthorized.
 
+### 2026-09-23 reconciliation — adoption merged; fixture-only implementation
+
+PR #26 merged at `276b0f708f124e0a242b66db1167e4699ae84575` under a one-time
+review-count exception authorized by Arthur and executed by Adrian (Codex); the
+adopted profile on `main` hashes to `ed45fb9f…91ab962`; post-merge run
+`35699382510` passed all four jobs. Facts and their sources are in
+`INCREMENT-21C-FACTUAL-PROFILE-PUBLICATION-CLOSEOUT-0001.md`.
+
+Arthur then authorized the next step ("continue next"): profile §8's
+fixture-only implementation, recorded in `INCREMENT-21C-IMPLEMENTATION-0001.md`.
+It adds `src/conclave/github_factual.py`, extends Stage 21A exactly as profile
+§2 rule 4 names (a separate factual API profile and a two-field PR projection
+extension, defaults unchanged), and adds 47 tests. Local result: 1,348 passed,
+2 skipped. It refuses `mode: live` and contains no transport, credential or
+mutation path.
+
+**Finding carried to Arthur.** Implemented Stage 21A records an HTTP rejection
+with status class `transport`, not `4xx` as 21A §9 describes. Profile §4.4's
+tolerated-rejection path therefore cannot fire through the real 21A path; every
+protection rejection stops the cycle. Correcting it is a Stage 21A change needing
+separate authority.
+
+**Next governed gate.** Implementation review of the branch, four-platform CI
+and the installed-wheel probe on a pull request, and Arthur's decision on the
+Stage 21A finding. Merge is Arthur's act, asked separately. Live qualification,
+credentials, Stage 21D, deployment and production remain unauthorized.
+
 ## 6. Session-start checklist
 
 Before continuing work:
 
 1. verify the live protected `main` head, active branch, remote state, the
-   disposition of the `docs/increment-21c-factual-profile-adoption` pull
-   request, and working-tree status; the reconciliation source was
-   `154394c570a9919fc00b7c00779f565f742508e2`;
-2. read this file, the frozen Increment 21 master protocol, Erratum 0001, the
-   adopted factual PR assistant profile, its issued adoption record, Council
-   Review 0006, and Stage 21A;
-3. preserve the distinction between protocol drafting, freeze and adoption,
-   implementation, factual observation, human merge action, and production
-   authority; and
-4. verify the adoption payload is merged, then obtain separate explicit
-   authority before any Stage 21C runtime or test change, credential
-   enablement, or live adapter operation.
+   disposition of any `feat/increment-21c-factual-assistant` pull request, and
+   working-tree status; the reconciliation source was
+   `276b0f708f124e0a242b66db1167e4699ae84575`;
+2. read this file, the adopted factual PR assistant profile, its issued
+   adoption record, Council Review 0006, `INCREMENT-21C-IMPLEMENTATION-0001.md`,
+   and Stage 21A;
+3. preserve the distinction between protocol adoption, fixture-only
+   implementation, implementation review, factual observation, human merge
+   action, live qualification, and production authority; and
+4. obtain Arthur's explicit authority before any merge, any Stage 21A change
+   (including the status-class finding), credential enablement, or live
+   adapter operation.

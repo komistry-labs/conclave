@@ -268,6 +268,7 @@ def execute_github_read(
             repository=repository_profile,
             intent=intent,
             maximum_page_bytes=api_profile.maximum_response_body_bytes_per_page,
+            projection_version=api_profile.response_projection_version,
         )
         observation = create_success_observation(
             observation_id=observation_id,
