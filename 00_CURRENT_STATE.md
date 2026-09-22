@@ -1,17 +1,23 @@
 # CONCLAVE Current Project State
 
-Last verified: 2026-09-16
-Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_COLLECTION_PROTOCOL_MERGED / IMPLEMENTATION_NOT_AUTHORIZED`
+Last verified: 2026-09-22
+Status class: `GOVERNED_MAIN_BASELINE / STAGE_21C_FACTUAL_PROFILE_ADOPTED / IMPLEMENTATION_NOT_AUTHORIZED`
 
 ## 1. Product baseline
 
 - product version: `0.8.0`
 - Python floor: `>=3.12`
 - reconciliation-source protected `main`:
-  `f78d656e4b6c03d55d3f385c7d310399a3e45879`
+  `154394c570a9919fc00b7c00779f565f742508e2` (merge of PR #25)
 - reconciliation-source `main` tree:
-  `31a3d9b4bbaa955934d8938b857326503c42cfa2`
+  `dfbea0b2dc9bcaa88fc24d340acebfd66e094654`
 - reconciliation preparation branch:
+  `docs/increment-21c-factual-profile-adoption`
+- adopted Stage 21C profile: factual PR assistant, SHA-256
+  `ed45fb9f2e1dfc8d8e9f542d71b8e67678aafe1d99120f209f5cb3b1891ab962`,
+  issued by Arthur 2026-09-22 (see §5, 2026-09-22 reconciliation)
+- previous reconciliation source: `f78d656e4b6c03d55d3f385c7d310399a3e45879`
+  (tree `31a3d9b4bbaa955934d8938b857326503c42cfa2`), branch
   `docs/increment-21c-collection-publication-closeout`
 - merged Stage 21C collection-protocol pull request: `#24`
 - accepted Stage 21C collection-protocol pull-request head:
@@ -405,20 +411,78 @@ live GitHub operations, deployment, production use, KOS changes, IDM changes,
 signing, identity allocation, and membership activation remain unauthorized.
 Stage 21D also remains outside the authority recorded here.
 
+### 2026-09-22 reconciliation — Stage 21C factual profile adopted
+
+The paragraphs above are preserved as history. The offline ceremony-plan gate
+they name is superseded by the following sequence; it is not a current gate.
+
+1. The offline two-key ceremony plan failed Council Review 0005 (early stop,
+   0/3). Its candidate and Reviews 0001-0005 are preserved.
+2. Arthur selected GitHub-backed human approval with external signing deferred,
+   then the narrower **factual PR assistant** profile: read-only factual
+   observation of a pull request, no readiness verdict, no signing ceremony, no
+   merge mutation (`INCREMENT-21C-GITHUB-BACKED-HUMAN-APPROVAL-TRANSITION.md`,
+   `INCREMENT-21C-FACTUAL-PR-ASSISTANT-PROTOCOL.md`).
+3. The profile went through author-side technical reviews 0001-0002,
+   independent reviews (Claude reviews 0001-0002) and six Council technical
+   reviews. Tally by round: 2/5, 1/5, 0/5, 0/5 (all findings narrow), 2/5,
+   **5/5 PASS**. Round 4 changed method: the profile records what Stage 21A
+   returns and never restates Stage 21A internals. Every correction is recorded
+   in correction records 0001-0006; every superseded candidate is preserved
+   byte-exactly as `…-PROTOCOL-SUPERSEDED-<hash8>.md`.
+4. Arthur determined that five same-provider subagent seats satisfy the
+   five-seat requirement (`INCREMENT-21C-FACTUAL-PROFILE-ARTHUR-DECISION-0001.md`).
+   Council Review 0006 records that seats 3-5 were rerun fresh after an account
+   usage limit interrupted them without output.
+5. Arthur issued the adoption record on 2026-09-22
+   (`INCREMENT-21C-FACTUAL-PROFILE-ARTHUR-DECISION-0002.md`).
+
+| Object | SHA-256 |
+|---|---|
+| Adopted profile `INCREMENT-21C-FACTUAL-PR-ASSISTANT-PROTOCOL.md` | `ed45fb9f2e1dfc8d8e9f542d71b8e67678aafe1d99120f209f5cb3b1891ab962` |
+| Accepted review `INCREMENT-21C-FACTUAL-PR-ASSISTANT-COUNCIL-REVIEW-0006.md` | `47134e0f4b91cb0802dc82a4d422db77c8f510ee59e57ddfbea8151fcb28010e` |
+| Issued `INCREMENT-21C-FACTUAL-PROFILE-ADOPTION-RECORD.md` | `3b255f8438ba9bfeff697916d5ce4a69b8579e0be17be86040b4e905cd2c5cef` |
+
+Effect of the issued adoption record: it supersedes, clause by clause, only the
+baseline-selection effect of `INCREMENT-21C-PROTOCOL-FREEZE-RECORD.md`,
+`INCREMENT-21-ERRATUM-0001-FREEZE-RECORD.md` and
+`INCREMENT-21C-CONTROL-ATTESTATION-COLLECTION-PROTOCOL-FREEZE-RECORD.md`. The
+readiness protocol (`d3701754…`) and collection protocol (`6ea468c1…`) remain
+frozen, merged and preserved byte-for-byte, and are **unselected, not
+rescinded**. The implementation prerequisite recorded above for the collection
+protocol's 90-read budget therefore no longer governs Stage 21C; the adopted
+profile's own budget is 95 transmissions. Stage 21A's signed credential-provider
+lease verification and key pinning and the no-mutation boundary remain in full.
+
+Council Review 0006 carries non-blocking and Stage 21A residual notes to be
+addressed at implementation review.
+
+This reconciliation and the governance payload are carried on branch
+`docs/increment-21c-factual-profile-adoption` under Arthur's authorization to
+commit, push and open a pull request. This CPS does not self-attest its own
+publication, review or merge state; verify them from GitHub.
+
+**Next governed gate.** Merge of that pull request is Arthur's act. After
+merge, Stage 21C implementation requires separate explicit authority, and under
+the adopted profile §8 is fixture-only, with no live transport or credentials.
+Credentials, live GitHub operations, deployment, production use, KOS and IDM
+changes, signing, identity allocation, membership activation and Stage 21D
+remain unauthorized.
+
 ## 6. Session-start checklist
 
 Before continuing work:
 
-1. verify the live protected `main` head, active branch, remote state, PR #25
-   disposition, and working-tree status; the reconciliation source was
-   `f78d656e4b6c03d55d3f385c7d310399a3e45879`;
-2. read this file, the frozen Increment 21 master protocol, the exact Stage 21C
-   replacement protocol, Council Review 0008, the frozen control-attestation
-   collection protocol, both Stage 21C freeze records, and the latest
-   publication closeout records;
-3. preserve the distinction between protocol drafting, protocol freeze,
-   implementation, readiness evidence, exact human authorization, merge
-   execution, and production authority; and
-4. verify publication of the post-merge closeout payload, then obtain separate
-   explicit authority for the offline ceremony-plan protocol before any Stage
-   21C runtime or test change, credential enablement, or live adapter operation.
+1. verify the live protected `main` head, active branch, remote state, the
+   disposition of the `docs/increment-21c-factual-profile-adoption` pull
+   request, and working-tree status; the reconciliation source was
+   `154394c570a9919fc00b7c00779f565f742508e2`;
+2. read this file, the frozen Increment 21 master protocol, Erratum 0001, the
+   adopted factual PR assistant profile, its issued adoption record, Council
+   Review 0006, and Stage 21A;
+3. preserve the distinction between protocol drafting, freeze and adoption,
+   implementation, factual observation, human merge action, and production
+   authority; and
+4. verify the adoption payload is merged, then obtain separate explicit
+   authority before any Stage 21C runtime or test change, credential
+   enablement, or live adapter operation.

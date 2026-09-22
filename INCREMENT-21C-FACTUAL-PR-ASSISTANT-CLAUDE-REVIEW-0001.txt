@@ -1,0 +1,160 @@
+I need the candidate bytes before I can review anything. Let me check what's reachable.Device is reachable but no folder is connected yet. Requesting access to exactly the draft directory.All seven required documents are present. Staging them.Both identities match exactly. Now reading the candidate.All five referenced hashes resolve to real present files. Now verifying the candidate's claims against Stage 21A.Now verifying the GitHub API semantics the candidate relies on.## Stage 21C Factual PR Assistant — independent exact-draft review
+
+**Date:** 19 September 2026 · **Reviewer:** Independent automated review (Claude, Cowork session), outside the CONCLAVE Council and outside the authoring chain. Read-only throughout: no file edited, no code implemented, no dependency installed, no credential accessed, no authenticated GitHub call, no commit, push, PR or merge.
+
+---
+
+## Verdict
+
+**`FAIL_EXACT_DRAFT`**
+
+Four blocking defects survive the F1–F4 corrections. All are bounded document-level closure defects in the same class as F1–F4 — none requires restarting the key ceremony, adding an endpoint, expanding scope, or building a new identity/signing system. The factual-only scope is sound and should be kept.
+
+---
+
+## Candidate identities actually verified
+
+Recomputed from the staged bytes, not accepted from the prompt or from Technical Review 0002:
+
+| Property | Expected | Recomputed | Result |
+|---|---|---|---|
+| SHA-256 | `73ac7565807a0167c3f2793e2b74f8ef0c971f5fcaf88314a600afadaedf8b7c` | identical | **match** |
+| Git blob | `122f5d5d3886d1a8d6897b3845e2c9dfde2f4e18` | identical | **match** |
+| Size | — | 19,276 bytes | — |
+| Line form | — | 321 LF, 0 CR, final LF present, no BOM, valid UTF-8 | clean |
+
+Every governing hash cited in §2 resolves to a real, present file in the same directory:
+
+| Cited in §2 | Resolves to |
+|---|---|
+| `d3701754…0164b257` | `INCREMENT-21C-READINESS-AND-HUMAN-MERGE-OBSERVATION.md` |
+| `6ea468c1…dbbb91c2` | `INCREMENT-21C-CONTROL-ATTESTATION-COLLECTION-PROTOCOL.md` |
+| `a0fa6388…10a5c742` | `INCREMENT-21-ERRATUM-0001-STAGE-21C-HUMAN-MERGE-SPLIT.md` |
+| `89a05211…f0878d75` | `INCREMENT-21-GITHUB-REPOSITORY-AND-PR-ADAPTER.md` (master) |
+| `97e32362…3b748e81f` | `INCREMENT-21C-GITHUB-BACKED-OBSERVATION-PROTOCOL-CANDIDATE.md` (superseded advisory candidate, **preserved on disk** as §2 requires) |
+
+All seven required supporting documents were present and read in full. **Local base `154394c570a9919fc00b7c00779f565f742508e2` is UNVERIFIED** — the directory is a Git worktree of `C:/Users/ZY/CLAUDE/komistry/conclave`, and that object does not exist in the public `komistry-labs/conclave` repository. I did not inspect the parent repository.
+
+---
+
+## Blocking findings
+
+### B1 — §4 and §6 contradict each other on page ceilings, and the 42-transmission budget is unenforceable at the Stage 21A authorization layer
+
+**File/section:** §4 (slot table preamble + note) against §6 paragraph 2, and against Stage 21A §5.1 / §4.2 / §7.2.
+
+§4 states paged slots "admit at most three pages (300 items), a deliberate subset of Stage 21A ceilings." §6 states "Inherit 21A exact page/item/byte/deadline/lease caps." Stage 21A's exact page/item caps are `maximum_pages: 10` / `maximum_items: 1000` (§4.2, §7.2). The two sentences cannot both be obeyed.
+
+Worse, the reduction has no conforming expression in the schema that actually bounds transmissions. Stage 21A §5.1 pins `maximum_network_requests` to "**exactly** the endpoint's page ceiling plus one possible retry transmission" — 11 for each paginated slot, 2 for each single slot. §5.2 permits the intent to reduce profile values only "where the endpoint table requires", and the endpoint table requires 10, not 3. `maximum_pages`, `maximum_items` and `maximum_network_requests` are all members of the frozen attempt-digest preimage (§5.2), so this is not a cosmetic choice — it changes the claim identity.
+
+**Failure scenario.** An implementer follows §6 and issues 21A-conforming authorizations. Preflight pre-admits 42 transmissions per §6, but the authorizations permit 7 paginated × 11 + 7 single × 2 = **91**. A PR with four pages of check runs is a conforming Stage 21A operation that the coordinator's counter rejects as overflow — §6 says overflow is "a preflight error, never permission to skip a mandatory slot", so the cycle dies before slot 1 on a perfectly ordinary PR. The reverse implementer writes `maximum_network_requests: 4` and violates 21A §5.1's "exactly", producing an authorization a strict 21A validator rejects. Neither implementer can be right.
+
+By the candidate's own §2.5 — "Any remaining normative conflict blocks adoption" — this conflict blocks.
+
+**Smallest sufficient correction.** In §6, replace "Inherit 21A exact page/item/byte/deadline/lease caps" with "Inherit 21A exact byte, deadline and lease caps"; then state in §4 that for this profile each slot's authorization and intent set `maximum_pages` to that slot's Max-pages value, `maximum_items` to 100 × that value, and `maximum_network_requests` to that value plus one, and that this narrowing of Stage 21A §5.1 is an explicit additive precedence rule listed in §2. If narrowing §5.1 is not acceptable to the reviewer, the alternative is to adopt 21A's 10-page ceiling and restate the worst case as 91 transmissions.
+
+---
+
+### B2 — §4's undifferentiated stop rule lets an unprotected base branch destroy target and merge reporting, contradicting §7
+
+**File/section:** §4 paragraph 8 ("Any operation failure stops further dispatch…") against §7 ("Permission failure means unavailable, never no protection") and §1 scope items 1 and 5.
+
+The `protection` slot is #8 of 14, four slots before the mandatory `pr_after` read. `branch_protection.get` returns **404 when the base branch has no classic branch protection** and **403 when the credential lacks administration/read** — and §2.4 deliberately retains the administration-read-only restriction, so 403 is an expected steady state, not an anomaly. Under Stage 21A §10 both are `HTTP_RESPONSE_REJECTED` → outcome `INCOMPLETE` → the candidate's §3 step disposition `FAILED` → §4 halts all further dispatch.
+
+**Failure scenario.** A repository whose base branch is governed by rulesets rather than classic protection (or any repository where the token has no administration/read) produces: `protection` FAILED; `branch_rules`, `rulesets`, `pr_after` and all three conditional slots NOT_ATTEMPTED. With no `pr_after`, §4 forces `target: UNKNOWN` and §5 forces every Merge field to UNKNOWN/null. The assistant can therefore **never** answer scope questions 1 ("which PR/commits were observed" — drift undetermined) or 5 ("whether GitHub reports a merge") for any repository without classic branch protection, even though both answers depend on a PR read that the plan already budgets and that would have succeeded.
+
+Nothing here is *mistaken for success* — the report stays honest, so priority 6 is not violated — but §7's promise that a permission failure yields a per-section "unavailable" is unreachable for every slot after the failure, and the protocol's own stated scope becomes unsatisfiable in the common case.
+
+**Smallest sufficient correction.** Make the stop rule failure-class-specific in §4: a slot whose Stage 21A outcome is `INCOMPLETE` solely from `HTTP_RESPONSE_REJECTED` or `RATE_LIMITED` on a PROTECTIONS-section slot is recorded `FAILED`, sets that section to PARTIAL or UNAVAILABLE, and **does not stop dispatch**; every other failure class (transport, pagination, projection, identity, claim, lease, storage) continues to stop dispatch immediately. Add a fixture for 403 and for 404 on `protection` with TARGET still reaching COMPLETE_WITHIN_ENDPOINT. Reordering `pr_after` ahead of the PROTECTIONS slots is a weaker alternative — it rescues TARGET but still lets a protections failure erase `branch_rules` and `rulesets`.
+
+---
+
+### B3 — the time budget is not closed: 840 s of conforming per-operation timeouts against a 600 s cycle limit and a 300 s profile-verification validity
+
+**File/section:** §3 (`elapsed at most 600 seconds`), §6 ("additional 600-second cycle limit"), against Stage 21A §4.2 (`operation_timeout_seconds: 60`) and §7.2 (profile verification "expires after five minutes").
+
+Three bounds disagree and the document reconciles none of them:
+
+- 14 slots × 60 s per logical operation = **840 s** worst case, above the 600 s cycle limit.
+- The mandatory `repository.get` + `repository_hash_algorithm.get` verification pair at slots 1–2 is valid for **300 s**. The fixed table admits no re-verification slot and §4 forbids any additional operation, so every slot dispatched after t=300 s runs on expired profile verification. Stage 21A's fallback — "a later logical read still rechecks the bound repository ID from its endpoint response wherever GitHub supplies it" — does not apply to `check_runs.list`, `combined_status.get`, `reviews.list`, `branch_rules.list`, `repository_rulesets.list` or `commit.get`, none of which return a repository ID.
+- §6 says nothing about what happens when the cycle limit is reached mid-plan.
+
+**Failure scenario.** A rate-limited or slow cycle reaches slot 11 at t=620 s. §3 makes a report with `elapsed > 600` schema-invalid, and §6 says an invalid schema "returns an error, not a report" — so the entire completed prefix, which §4 promises to preserve, is discarded and **no evidence survives at all**. A second, faster cycle reaching slot 14 at t=450 s produces a report whose last six observations were taken under a profile verification that expired 150 s earlier, with no recorded indication that it had lapsed.
+
+**Smallest sufficient correction.** State in §6 that the cycle deadline is enforced as a pre-dispatch check: before each slot, if the remaining cycle budget is less than `operation_timeout_seconds`, that slot and all remaining slots are `NOT_ATTEMPTED` and the cycle stops with the completed prefix persisted. Then either reduce the cycle limit to 300 s so it cannot outlive profile verification, or admit a second `repository.get`/`repository_hash_algorithm.get` pair as slots 15–16 with its own budget (raising the worst case to 30 pages / 46 transmissions). Add a fixture for cycle-deadline exhaustion mid-plan.
+
+---
+
+### B4 — §5's projection versioning has no binding in Stage 21A, and cites a "projection allowlist" that does not exist there
+
+**File/section:** §5 paragraphs 1 and 3, against Stage 21A §4.2 and §9.
+
+§5 says the new `github-factual-pr/0.1.0` projection is "selected only by this profile" and that "explicit version dispatch is the only exception to the old projection allowlist." I searched Stage 21A for that mechanism: **there is no projection allowlist and no per-operation version-dispatch facility.** Stage 21A §4.2 pins exactly one profile-level field, `response_projection_version: github-21a-rest-projections/0.1.0`, for all endpoints. Stage 21A §9 records a "response-projection version" per observation, which makes per-observation *recording* possible, but nothing defines per-operation *selection*.
+
+This matters because `api_profile_hash` is a member of the frozen attempt-digest preimage (§5.2). Whether the factual profile runs under the existing api profile or a new one changes every attempt digest in the plan.
+
+**Failure scenario.** Implementer A dispatches `github-factual-pr/0.1.0` under the existing api profile. An offline verifier reads `response_projection_version: github-21a-rest-projections/0.1.0` in the bound profile, sees `github-factual-pr/0.1.0` in the observation envelope, and cannot determine whether that is a conforming override or a projection substitution — precisely the ambiguity F1 was meant to eliminate. Implementer B mints a new api profile; the attempt digests differ from A's for identical operations, and two reports of the same PR are not comparable. §3 requires `prior_report` to match on "the same protocol, repository/API profiles" — so an A-report and a B-report can never chain.
+
+**Smallest sufficient correction.** One sentence in §5 stating which of the two it is. Either: "`github-factual-pr/0.1.0` is dispatched under the existing `github-api-profile`; `response_projection_version` names the base family, and this profile's `pull_request.get` operation records the extended version in the observation envelope, which is an additive precedence rule under §2" — or name the new api-profile record and require the request's `api_profile` reference to bind it. Delete the reference to an "old projection allowlist" or define it, since Stage 21A supplies no such object.
+
+---
+
+## Non-blocking observations
+
+1. **§3 `observations: 0-96` is loose by a factor of ~7.** §3 also requires every observation to belong to exactly one step, and there are exactly 14 steps, so the true bound is 0–14. 96 appears to be carried over from the collection protocol's cycle ceiling. Tightening to 0–14 costs nothing and closes an invariant an offline verifier could otherwise not check.
+2. **§4's "below the cycle ceiling" is a dangling reference.** Neither this candidate nor Stage 21A defines a cycle-level transmission ceiling (21A bounds per operation). The phrase reads as if inherited from the collection protocol's 192.
+3. **Erratum §12 survives but its first paragraph becomes vacuous.** The candidate replaces erratum §§4–6 and 8–11 (which define readiness evaluation) while leaving §12 in force. §12 opens "Following a failed readiness evaluation, CONCLAVE must not accept… any human authorization as usable" — a rule with no trigger once readiness evaluation is removed. Its remaining paragraphs (no undo, no history rewrite, no unauthorized live exercise) stay fully applicable and valuable. A reader could mistake §12's survival for a retained readiness gate; one clause in §2.3 noting that §12 is retained for its mutation and live-exercise boundaries only would remove the ambiguity.
+4. **§2.2 extends supersession to master §12 decision 7, which the frozen erratum left untouched** (erratum §3 and §13 supersede decisions 5 and 6 only). On inspection this is a *cleanup*, not a weakening: decision 7's Stage 21C clause requires the no-bypass attestation "in §8", and master §8 invariant 9 is already superseded by the frozen erratum, so decision 7's operative cross-reference was already dangling. Decision 7's permission half ("Administration-read only where demonstrably required; Administration-write prohibited") is explicitly retained by §2.4. I raise it only so Arthur ratifies consciously that the mandatory no-bypass attestation is gone — replaced by the permanent `NO_BYPASS_ATTESTATION` limitation, which is honest but is a different control.
+5. **The three conditional slots are, in practice, unreachable.** §4 requires their authorizations to be obtained "only after the final PR source exists", and Stage 21A §5.1 requires a human principal to create each authorization bound to exact path parameters — i.e. a human must mint three authorizations for a SHA first known at slot 11, inside the cycle deadline. Realistically every cycle yields NOT_ATTEMPTED. This fails safe, but it makes scope item 5's "and its subsequent checks" unreachable. Consider permitting a `post_action` request to carry pre-issued conditional authorizations bound to the *prior report's* merge SHA; the existing guard — "Identity-matched commit SHA must equal the reported SHA. Failed linkage stops subsequent slots" — already fails closed if the SHA moved.
+6. **A CHECKS section can read COMPLETE_WITHIN_ENDPOINT while `target` is CHANGED**, because `head_checks`/`head_status` bind `expected_head_sha` rather than the observed head. This is the right design — the human wants checks for the SHA they reviewed — and §3's "Rendering shows native check/review statuses with target SHA" plus §7's "Checks apply only to the printed commit" cover it. A rendering requirement that the CHANGED target be shown adjacent to the CHECKS section would make misreading harder.
+7. **`repository_hash_algorithm.get` at `/repos/{owner}/{repo}/hash-algorithm` (slot 2) — I could not confirm this is a documented GitHub REST endpoint.** I am not certain either way and did not call it. It is inherited from frozen Stage 21A, not introduced here, so it is outside this candidate's scope to fix. It matters only because of B2: if that endpoint 404s, the current stop rule aborts every cycle at slot 2 and no report is ever produced. Worth an implementation-preflight check against official documentation.
+8. **"32 MiB aggregate decompressed limit" (§6) is vestigial wording.** Stage 21A §4.2 disables compression. The 32 MiB cycle aggregate is itself a genuine tightening (21A bounds 8 MiB per logical operation with no cycle total), so the cap is sound — only "decompressed" is inapplicable.
+9. **`actor_comparison` when `expected_human_id` is null** is inferable but unstated. §5 says the comparison "uses expected_human_id if non-null"; adding "otherwise UNKNOWN" closes the enum explicitly.
+10. **§4's SAME predicate mentions "before/after … ref identity"**, but `base_ref` is read once at slot 3 with no counterpart read. Before/after base and head come from the two PR reads; the standalone ref observation has no "after". Minor wording imprecision.
+
+---
+
+## Disposition of the original findings F1–F4
+
+I verified each against the candidate bytes and the frozen documents rather than accepting Technical Review 0002's table.
+
+| Finding | Disposition | Verification |
+|---|---|---|
+| **F1** source binding | **Closed** | §4 binds each step to "the exact request repository/profile identities, operation, canonical parameters and permitted projection version"; a wrong binding is "a validation error, not PARTIAL". §3 requires every observation to belong to exactly one step and forbids section sources or PR pointers from introducing another. `pr_before`/`pr_after` must equal their slot references "including null when not attempted". The residual concern F1 named — a valid record for a different SHA satisfying coverage — is now excluded by the per-slot table plus the exact-binding rule. The CHANGED-vs-error distinction is correctly carved out. |
+| **F2** merge-source selection | **Closed** | §5 derives Merge "solely from the complete, identity-matched pr_after slot; never fall back to pr_before", forbids combining values across the reads, forbids a third read, and sets all fields UNKNOWN/null without that source. Contradictory flags (merged with open state) yield UNKNOWN. Test-merge SHA before `merged=true` is excluded from dispatch. I confirmed the documented basis: GitHub states "Before merging a pull request, the `merge_commit_sha` attribute holds the SHA of the *test* merge commit", and that after merge its meaning varies by method — which also validates treating non-two-parent shapes as UNSUPPORTED rather than DIFFERENT. |
+| **F3** distinct authorization binding | **Closed** | §4 requires "an externally supplied distinct authorization hash and an unused Stage 21A attempt digest" and states a fresh UUID is insufficient. I checked the frozen preimage in Stage 21A §5.2: its members include `authorization_hash` but **not** `intent_id`, so distinct authorizations are both necessary and sufficient to produce distinct digests — F3's diagnosis and the correction are both right. §4's "Do not delete claims or weaken Stage 21A replay protection" preserves §5.3's exclusive-create, no-takeover semantics. |
+| **F4** unrecorded operation plan | **Closed as to retention; superseded by B1 as to budget** | The fixed 14-slot table plus one closed Step per slot in slot order makes the plan retained and offline-reproducible, and ruleset-detail expansion is removed (`repository_ruleset.get` is absent from the table). Coverage is derived from slots, not caller selection. I independently recomputed the arithmetic: 28 pages + 14 retries = 42, correct. **However**, the budget it produces is not enforceable through the Stage 21A field that bounds transmissions — see B1. F4's retention defect is fixed; its budget-provability goal is not yet met. |
+
+Technical Review 0002's characterisation of its own work is accurate and appropriately bounded: it states the closures are "document-level closures, not implemented safeguards", that the listed tests "remain NOT RUN", and that author closure is not a Council PASS. I found no overstatement in it.
+
+---
+
+## Checks actually performed
+
+- Recomputed the candidate's SHA-256 and Git blob from staged bytes; verified size, LF/CR counts, final LF, BOM absence, UTF-8 validity.
+- Hashed all eight staged governing documents and resolved all five cross-references in §2 to present files.
+- Read the candidate in full (321 lines) and all seven supporting documents.
+- Mapped every one of the 14 slots' operation keys against Stage 21A §7.2. **All 11 distinct keys exist in the frozen table; no new route or permission is introduced** — §2.4 and erratum §7 hold on this point.
+- Verified the extension fields against Stage 21A §8.1's `pull_request.get` projection and §8.2's `actor_type` enum (`User`/`Bot`/`Organization`/`Mannequin`); the "non-User yields UNKNOWN" rule is consistent.
+- Verified the attempt-digest preimage membership (Stage 21A §5.2) to test F3 independently.
+- Verified master §8 invariants: 8–12 are exactly the merge-execution invariants, 1–7 are Stage 21A/21B controls. **The §2.2 replacement range is correct and weakens no unrelated 21A/21B control.**
+- Verified master §12 decisions 5, 6, 7 and erratum §3's supersession list; verified erratum §§7 and 14 contain what §2.3 claims.
+- Recomputed the budget under both the candidate's and Stage 21A's ceilings (42 vs 91) and the three time bounds (840 / 600 / 300 s).
+- Verified the 11 limitation codes are unique and ASCII-sorted as §7 asserts.
+- Checked GitHub documentation for `merge_commit_sha` semantics.
+
+## Checks not run
+
+No code executed, no fixture run, no installed package built, no Windows/macOS/Linux platform evidence, no cryptography, no live or authenticated GitHub call, no repository mutation. I did not inspect `src/`, `tests/`, `tools/`, `policies/`, `release/` or `.github/`, and did not open the parent Git repository. The `github-factual-request`/`-report` schemas were reviewed as prose; no canonical-JSON serialization was exercised.
+
+## Remaining uncertainty
+
+- **Local base `154394c5…` is UNVERIFIED** (not present in the public repository; parent worktree not inspected).
+- **The existence of `/repos/{owner}/{repo}/hash-algorithm` is UNVERIFIED.** My search returned no documentation for it; I cannot conclusively assert absence, and it is frozen Stage 21A content regardless.
+- Whether narrowing Stage 21A §5.1's "exactly the endpoint's page ceiling plus one" is an acceptable additive precedence rule or requires a Stage 21A erratum is an **authority question for Arthur**, not something I can settle from the documents. B1's correction is worded to work either way.
+- Whether Arthur intends master §12 decision 7's Stage 21C no-bypass-attestation clause to be set aside (observation 4) is likewise an authority question.
+- The GitHub documentation page does not explicitly confirm that `merged_by` is returned by "Get a pull request" — it appears in response examples. §5's "required nullable" treatment fails closed if it is absent, so the risk direction is safe, but the field's guaranteed presence should be confirmed against a fixture during implementation.
+
+This review applies only to the verified candidate bytes `73ac7565…dedf8b7c` / blob `122f5d5d…de2f4e18`. Any byte change voids it. It authorizes no freeze, implementation, publication, commit, push, merge, or live operation.
+
+Sources: [REST API endpoints for pull requests — GitHub Docs](https://docs.github.com/en/rest/pulls/pulls) · [REST API endpoints for repositories — GitHub Docs](https://docs.github.com/en/rest/repos) · [REST API endpoints for commits — GitHub Docs](https://docs.github.com/en/rest/commits/commits)
