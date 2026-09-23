@@ -867,23 +867,57 @@ def test_real_21a_read_records_factual_projection_set(tmp_path: Path, monkeypatc
     assert record_result(result)[0] == "OBSERVED"
 
 
-def test_characterize_21a_records_http_rejection_as_transport_class(tmp_path: Path, monkeypatch) -> None:
-    """Characterization, not endorsement. Implemented Stage 21A raises
-    HTTP_RESPONSE_REJECTED during projection and seals the failure observation
-    with status_class 'transport', not '4xx' as 21A section 9 describes.
-
-    Consequence for the adopted profile: the section 4.4 tolerated-rejection
-    path never fires through the real 21A path today; every protection 4xx
-    stops the cycle, the conservative outcome. Fixing it is a Stage 21A change
-    requiring separate authority. If 21A is corrected, this test must change
-    deliberately and the tolerance path becomes reachable end to end."""
+def test_real_http_rejection_is_its_own_status_class_and_is_tolerated(tmp_path: Path, monkeypatch) -> None:
+    """Stage 21A section 9: a received HTTP rejection carries its own status
+    class. With that, profile section 4.4's tolerated-rejection path — the
+    round-1 B2 fix — is reachable end to end: a branch-protection 404 on a
+    repository governed by rulesets rather than classic protection no longer
+    destroys the rest of the report."""
 
     _factual, result = _real_factual_read(tmp_path, monkeypatch, (404, {"message": "Not Found"}))
     observation = result.observation
     assert observation is not None and not observation.complete
     assert observation.reason_codes == ("HTTP_RESPONSE_REJECTED",)
-    assert observation.status_class == "transport"
-    assert not is_tolerated("protection", observation)
+    assert observation.status_class == "4xx"
+    assert is_tolerated("protection", observation)  # continues; §7 still says unavailable
+    assert not is_tolerated("reviews", observation)  # only PROTECTIONS slots
+
+
+def test_real_transport_failure_keeps_transport_class(tmp_path: Path, monkeypatch) -> None:
+    """The corrected rule does not relabel failures with no usable response."""
+
+    import test_github_foundation as tgf
+    from conclave.github_foundation import GitHubTransportFailure
+    from conclave.github_operation import execute_github_read
+    from conclave.ledger import initialise as initialise_ledger
+    from conclave.workspace import Workspace
+    from github_fixture_support import FixtureGitHubTransport
+
+    factual = seal_record(
+        GitHubFactualApiProfile,
+        {"profile": "github-factual-api-profile", "schema_version": FACTUAL_API_PROFILE_SCHEMA,
+         **{**CONSTANTS, "created_at": tgf.NOW}},
+    )
+    monkeypatch.setattr(tgf, "_api_profile", lambda **_: factual)
+    fixture = tgf._credential_fixture()
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport([
+        GitHubTransportFailure("TRANSPORT_TIMEOUT", before_headers=False),
+    ])
+    clock = tgf._Clock(*[f"2026-09-09T06:00:{s:02d}Z" for s in (0, 3, 4, 5, 6, 7, 8, 10)])
+    result = execute_github_read(
+        workspace=workspace, repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"], provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"], intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"], request=fixture["request"],
+        provider=fixture["provider"], transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a114",
+        clock=clock, monotonic=lambda: 0.0,
+    )
+    assert result.observation is not None
+    assert result.observation.status_class == "transport"
+    assert not is_tolerated("protection", result.observation)
 
 
 # ------------------------------------------------------------------ persistence

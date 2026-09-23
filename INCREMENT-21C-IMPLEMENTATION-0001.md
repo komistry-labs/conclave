@@ -31,8 +31,9 @@ Branch: `feat/increment-21c-factual-assistant`, based on `main` at `276b0f7`.
 |---|---|
 | `src/conclave/github_factual.py` | new — records, plan, decision rules, coordinator |
 | `src/conclave/github_foundation.py` | additive — factual API profile and PR projection extension (rule 4) |
-| `src/conclave/github_operation.py` | one line — passes the profile's projection version to projection |
-| `tests/test_github_factual.py` | new — 47 tests |
+| `src/conclave/github_operation.py` | passes the profile's projection version to projection; status-class correction (§5) |
+| `tests/test_github_factual.py` | new — 48 tests |
+| `tests/test_github_foundation.py` | one added Stage 21A regression test for the §5 correction |
 
 ## 3. Stage 21A changes — exactly profile §2 rule 4
 
@@ -76,25 +77,26 @@ The coordinator loop is written one branch per protocol clause, in the protocol'
 order, because rounds R4-5 and R4-6 of review were dropped-qualifier defects on
 exactly these paths.
 
-## 5. Finding: implemented Stage 21A records HTTP rejections as `transport`
+## 5. Finding: Stage 21A recorded HTTP rejections as `transport` — corrected
 
-`project_github_responses` raises `HTTP_RESPONSE_REJECTED` for any non-2xx page;
-`execute_github_read` then seals the failure observation with
-`status_class="transport"`. Stage 21A §9 describes status class `4xx`/`5xx` for
-HTTP responses. Proven end to end by
-`test_characterize_21a_records_http_rejection_as_transport_class` (a real 404
-through the real signed-lease path).
+Found during implementation: `execute_github_read` sealed every failure
+observation as `transport`, so a real GitHub 403/404 never carried status class
+`4xx`, and profile §4.4's tolerated-rejection path (the round-1 B2 fix) could
+not fire through the real path. Stage 21A §9 defines the class as that of the
+response actually received, so the frozen text was correct and the
+implementation was not.
 
-Consequence: profile §4.4's tolerated-rejection path — the round-1 B2 fix that
-lets a report continue past a protection 404/403 — never fires through the real
-21A path today. Every protection rejection stops the cycle. That is the
-conservative direction, not a hazard, but B2's intended benefit is absent.
+Arthur authorized the fix ("fix it and keep going"). It is applied and recorded
+in `INCREMENT-21A-IMPLEMENTATION-CORRECTION-0001.md`: the failure path now
+derives the class from the last retained response, keeping `transport` for
+failures with no usable response and `none` for nothing transmitted.
 
-Not changed here: correcting it is a change to merged Stage 21A code and needs
-Arthur's separate authority. The fix is small (derive the status class from the
-last response in the failure path) and would make the characterization test
-change deliberately. The profile's §4.4 text needs no change; its fixtures
-already inject the 4xx shape directly as §8 permits.
+The profile needed no change. With the correction, §4.4 tolerance is now
+reachable end to end — proven by
+`test_real_http_rejection_is_its_own_status_class_and_is_tolerated`, with
+`test_real_transport_failure_keeps_transport_class` confirming transport
+failures are not relabelled, and a Stage 21A-owned regression test in
+`tests/test_github_foundation.py`.
 
 ## 6. Council review 0006 residuals
 
@@ -105,14 +107,15 @@ already inject the 4xx shape directly as §8 permits.
 | §3 tail syntax only, not the allowlist | Implemented: `valid_branch` plus the 21A §7.1 character exclusions; `allowed_base_refs` stays 21A's check at dispatch |
 | §4.6 lifetime bound as record validity | Record validity (pydantic) is checked; no time comparison at preflight |
 | 401 shares class 4xx; secondary-rate-limit classification; `resolve_once()` unbounded; §6.5 two-gate | Stage 21A residuals; unchanged |
-| Every 4xx gets a per-page record? | Answered by §5: the real path records `transport`, see finding |
+| Every 4xx gets a per-page record? | Answered: the real path retains the rejected response as one page with its rate-limit projection (§5 correction evidence) |
 
 ## 7. Evidence
 
 Local, Windows / Python 3.12.10:
 
-- full suite **1,348 passed, 2 skipped** (1,301 pre-existing + 47 new); the
-  pre-existing 1,301 also pass alone after the 21A change;
+- full suite **1,350 passed, 2 skipped** (1,301 pre-existing + 48 new + 1 Stage
+  21A regression test); the pre-existing 1,301 also pass unchanged after both
+  the rule-4 extension and the §5 correction;
 - mutation checks on four critical rules: three killed (R4-6 initial
   NOT_APPLICABLE — 20 failures; tolerate `transport` — 1; null `remaining` — 1);
   the fourth (`actor_id is not None` guard) is an equivalent mutation because a
@@ -132,7 +135,7 @@ them.
 ## 8. Open before implementation acceptance
 
 1. Implementation review against the adopted profile (the lineage's Council
-   practice), including this record's claims.
-2. Arthur's decision on the §5 Stage 21A status-class finding.
-3. Four-platform CI and installed-wheel probe on the PR.
-4. Merge — Arthur's act, asked separately.
+   practice), including this record's claims and the Stage 21A correction
+   (`INCREMENT-21A-IMPLEMENTATION-CORRECTION-0001.md`).
+2. Four-platform CI and installed-wheel probe on the PR.
+3. Merge — Arthur's act, asked separately.

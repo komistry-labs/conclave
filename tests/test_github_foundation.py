@@ -1250,6 +1250,58 @@ def test_governed_coordinator_seals_complete_chain_and_safe_ledger(
     assert "lease-fixture-001" not in serialized
 
 
+def test_coordinator_records_rejected_http_response_with_its_own_status_class(
+    tmp_path: Path,
+) -> None:
+    """Section 9: the status class describes the response actually received.
+    A rejected HTTP response is its own class; "transport" is reserved for
+    failures with no usable response."""
+
+    fixture = _credential_fixture()
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport(
+        [
+            GitHubTransportResponse(
+                404,
+                (("Content-Type", "application/json"),),
+                json.dumps({"message": "Not Found"}, separators=(",", ":")).encode(),
+            )
+        ]
+    )
+    clock = _Clock(
+        "2026-09-09T06:00:00Z",
+        "2026-09-09T06:00:03Z",
+        "2026-09-09T06:00:04Z",
+        "2026-09-09T06:00:05Z",
+        "2026-09-09T06:00:06Z",
+        "2026-09-09T06:00:07Z",
+        "2026-09-09T06:00:08Z",
+        "2026-09-09T06:00:10Z",
+    )
+    result = execute_github_read(
+        workspace=workspace,
+        repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"],
+        provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"],
+        intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"],
+        request=fixture["request"],
+        provider=fixture["provider"],
+        transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a115",
+        clock=clock,
+        monotonic=lambda: 0.0,
+    )
+    observation = result.observation
+    assert observation is not None and not observation.complete
+    assert observation.status_class == "4xx"
+    assert observation.reason_codes == ("HTTP_RESPONSE_REJECTED",)
+    assert observation.visibility == "not_observed"
+    assert len(observation.pages) == 1  # the rejected response is retained
+
+
 def test_coordinator_rejects_wrong_principal_before_claim_provider_or_transport(
     tmp_path: Path,
 ) -> None:

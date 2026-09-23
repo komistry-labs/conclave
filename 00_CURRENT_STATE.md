@@ -487,16 +487,22 @@ extension, defaults unchanged), and adds 47 tests. Local result: 1,348 passed,
 2 skipped. It refuses `mode: live` and contains no transport, credential or
 mutation path.
 
-**Finding carried to Arthur.** Implemented Stage 21A records an HTTP rejection
-with status class `transport`, not `4xx` as 21A §9 describes. Profile §4.4's
-tolerated-rejection path therefore cannot fire through the real 21A path; every
-protection rejection stops the cycle. Correcting it is a Stage 21A change needing
-separate authority.
+**Stage 21A correction.** Implementation found that implemented Stage 21A
+recorded an HTTP rejection with status class `transport`, not `4xx` as 21A §9
+describes, so profile §4.4's tolerated-rejection path could not fire through the
+real path. Arthur authorized the fix ("fix it and keep going"); it is applied
+and recorded in `INCREMENT-21A-IMPLEMENTATION-CORRECTION-0001.md`. The failure
+path now derives the class from the last retained response; `transport` and
+`none` are unchanged for failures without a usable response. No frozen document,
+record schema, reason code, permission, endpoint or gate changed, and no stored
+observation is rewritten. Local suite after the correction: 1,350 passed,
+2 skipped.
 
-**Next governed gate.** Implementation review of the branch, four-platform CI
-and the installed-wheel probe on a pull request, and Arthur's decision on the
-Stage 21A finding. Merge is Arthur's act, asked separately. Live qualification,
-credentials, Stage 21D, deployment and production remain unauthorized.
+**Next governed gate.** Implementation review of the branch (covering both the
+Stage 21C implementation and the Stage 21A correction), four-platform CI and the
+installed-wheel probe on a pull request. Merge is Arthur's act, asked
+separately. Live qualification, credentials, Stage 21D, deployment and
+production remain unauthorized.
 
 ## 6. Session-start checklist
 
