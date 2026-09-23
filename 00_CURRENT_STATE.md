@@ -498,9 +498,15 @@ record schema, reason code, permission, endpoint or gate changed, and no stored
 observation is rewritten. Local suite after the correction: 1,350 passed,
 2 skipped.
 
-**Next governed gate.** Implementation review of the branch (covering both the
-Stage 21C implementation and the Stage 21A correction), four-platform CI and the
-installed-wheel probe on a pull request. Merge is Arthur's act, asked
+Implementation review 0001 (five same-provider seats) returned 1/5 PASS with no
+redesign finding; its code and test findings are remediated and recorded in
+`INCREMENT-21C-IMPLEMENTATION-REVIEW-0001.md`. Suite after remediation: 1,386
+passed, 2 skipped; a 26-mutant re-run kills all 26. Open and recorded: profile
+§7 rendering has no implementation because no display surface exists in this
+increment.
+
+**Next governed gate.** A fresh review of the remediated bytes, four-platform CI
+and the installed-wheel probe on PR #27. Merge is Arthur's act, asked
 separately. Live qualification, credentials, Stage 21D, deployment and
 production remain unauthorized.
 

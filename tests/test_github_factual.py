@@ -19,6 +19,9 @@ from conclave.github_factual import (
     MAXIMUM_TRANSMISSIONS,
     PROTOCOL_SHA256,
     SLOTS,
+    SLOT_BY_NAME,
+    Section,
+    Step,
     FactualCollectionError,
     FactualReport,
     FactualRequest,
@@ -166,10 +169,18 @@ def _ref(record, name: str) -> RecordReference:
     return RecordReference(reference=f"github/{name}.json", content_hash=record.content_hash)
 
 
-def _binding(slot_index: int, request: FactualRequest, *, auth_id: int | None = None) -> SlotBinding:
+def _binding(
+    slot_index: int,
+    request: FactualRequest,
+    *,
+    auth_id: int | None = None,
+    requests_override: int | None = None,
+    pages_override: int | None = None,
+    attempt_id_override: str | None = None,
+) -> SlotBinding:
     slot = SLOTS[slot_index]
     path, query = expected_parameters(slot, request)
-    requests = slot.maximum_pages + 1
+    requests = requests_override or (slot.maximum_pages + 1)
     authorization = seal_record(
         GitHubOperationAuthorization,
         {
@@ -203,7 +214,7 @@ def _binding(slot_index: int, request: FactualRequest, *, auth_id: int | None = 
         query_parameters=query,
         maximum_response_body_bytes_per_page=2_097_152,
         maximum_total_response_body_bytes=8_388_608,
-        maximum_pages=slot.maximum_pages,
+        maximum_pages=pages_override or slot.maximum_pages,
         maximum_items=1000 if slot.maximum_pages > 1 else 1,
         operation_timeout_seconds=60,
         maximum_retry_transmissions_per_operation=1,
@@ -231,12 +242,12 @@ def _binding(slot_index: int, request: FactualRequest, *, auth_id: int | None = 
             "request_body_bytes": 0,
             "maximum_response_body_bytes_per_page": 2_097_152,
             "maximum_total_response_body_bytes": 8_388_608,
-            "maximum_pages": slot.maximum_pages,
+            "maximum_pages": pages_override or slot.maximum_pages,
             "maximum_items": 1000 if slot.maximum_pages > 1 else 1,
             "operation_timeout_seconds": 60,
             "maximum_retry_transmissions_per_operation": 1,
             "maximum_network_requests": requests,
-            "attempt_id": attempt,
+            "attempt_id": attempt_id_override or attempt,
             "not_after": LATER,
             "maximum_credential_resolutions": 1,
             **CONSTANTS,
@@ -247,7 +258,7 @@ def _binding(slot_index: int, request: FactualRequest, *, auth_id: int | None = 
         {
             "profile": "github-operation-attempt-claim",
             "schema_version": "github-operation-attempt-claim/0.1.0",
-            "attempt_id": attempt,
+            "attempt_id": attempt_id_override or attempt,
             "authorization": intent.authorization,
             "intent": _ref(intent, f"intents/{slot.name}"),
             "repository_profile": REPO_REF,
@@ -300,7 +311,11 @@ def _observation(
     reasons: tuple[str, ...] = (),
     pages: tuple[ObservationPage, ...] | None = None,
     identity_match: bool | None = None,
+    pagination_complete: bool | None = None,
     path_parameters: dict[str, Any] | None = None,
+    query_parameters: dict[str, Any] | None = None,
+    projection_version: str = FACTUAL_RESPONSE_PROJECTION_VERSION,
+    attempt_id: str | None = None,
     repository_id: int = 101,
 ) -> GitHubObservation:
     _OBS_COUNTER[0] += 1
@@ -324,15 +339,15 @@ def _observation(
             "installation_id": 404,
             "operation_key": intent.operation_key,
             "path_parameters": path_parameters if path_parameters is not None else dict(intent.path_parameters),
-            "query_parameters": dict(intent.query_parameters),
-            "attempt_id": intent.attempt_id,
+            "query_parameters": query_parameters if query_parameters is not None else dict(intent.query_parameters),
+            "attempt_id": attempt_id or intent.attempt_id,
             "observed_at": NOW,
             "status_class": status_class,
             "pages": pages if pages is not None else (_page(),),
-            "response_projection_version": FACTUAL_RESPONSE_PROJECTION_VERSION,
+            "response_projection_version": projection_version,
             "projection": projection or {"visibility": "complete_for_endpoint"},
             "complete": complete,
-            "pagination_complete": complete,
+            "pagination_complete": complete if pagination_complete is None else pagination_complete,
             "identity_match": complete if identity_match is None else identity_match,
             "visibility": "complete_for_endpoint" if complete else "not_observed",
             "reason_codes": reasons,
@@ -932,8 +947,299 @@ def test_report_persists_immutably_and_revalidates(tmp_path: Path) -> None:  # �
     assert persist_factual_report(tmp_path, report) == path  # idempotent, no overwrite
 
 
-def test_module_has_no_live_or_mutation_path() -> None:  # §8
-    source = Path(__import__("conclave.github_factual", fromlist=["x"]).__file__).read_text(encoding="utf-8")
-    for forbidden in ("HTTPSGitHubTransport", "create_production_https_transport", "prepare_credential_lease",
-                      "\"PUT\"", "\"POST\"", "\"PATCH\"", "\"DELETE\"", "merge_pull"):
-        assert forbidden not in source
+def test_no_live_or_mutation_path_is_reachable() -> None:  # §8
+    """Reachability, not a source grep: nothing this module can reach builds a
+    live transport or a publication (mutation) dispatch, and the production
+    transport refuses for every repository profile the package can construct."""
+
+    import importlib
+    import conclave.github_factual as factual
+    from conclave.github_foundation import create_production_https_transport
+
+    seen: set[str] = set()
+    pending = [factual.__name__]
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        module = importlib.import_module(name)
+        for value in vars(module).values():
+            imported = getattr(value, "__module__", None) or getattr(value, "__name__", None)
+            if isinstance(imported, str) and imported.startswith("conclave."):
+                pending.append(imported)
+
+    # No publication (mutation) module is reachable at all.
+    assert not {name for name in seen if "publication" in name}, seen
+
+    # This module binds no transport or credential machinery of its own, so no
+    # live path exists here even though github_foundation defines one.
+    own = vars(factual)
+    for forbidden in ("HTTPSGitHubTransport", "create_production_https_transport",
+                      "prepare_credential_lease", "run_github_transport", "execute_github_read"):
+        assert forbidden not in own, forbidden
+
+    # The real gate is by construction: live use cannot be switched on.
+    assert GitHubRepositoryProfile.model_fields["live_use_allowed"].annotation is not bool
+    with pytest.raises(GitHubFoundationFailure):
+        create_production_https_transport(REPO, API)
+
+
+# --------------------------------------------------- review-0001 regression tests
+
+
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({"merged_at": NOW}, "UNKNOWN"),               # open + merged_at
+        ({"merged_by": {"id": 1, "type": "User"}}, "UNKNOWN"),  # open + merged_by
+        ({"state": "closed", "merged_at": NOW}, "UNKNOWN"),     # closed, unmerged, merged_at
+    ],
+)
+def test_merge_state_requires_every_qualifier(changes: dict, expected: str) -> None:
+    assert merge_state(_pr(**changes)) == expected
+
+
+def test_target_changed_from_account_id_and_object_format(tmp_path: Path) -> None:
+    request = _request()
+    account = {"complete": False, "identity_match": False, "reasons": ("REPOSITORY_IDENTITY_MISMATCH",),
+               "projection": {"repository_id": 101, "account_id": 999}}
+    assert _run(tmp_path / "a", request, Scripted(request, repository_after=account)).target == "CHANGED"
+    fmt = {"complete": False, "identity_match": False, "reasons": ("REPOSITORY_IDENTITY_MISMATCH",),
+           "projection": {"hash_algorithm": "sha256"}}
+    assert _run(tmp_path / "b", request, Scripted(request, object_format_after=fmt)).target == "CHANGED"
+
+
+def test_non_2xx_verification_projection_is_not_evidence_of_change(tmp_path: Path) -> None:
+    """§4.5: identity_match false without a 2xx projection is not CHANGED."""
+
+    request = _request()
+    for status in ("transport", "4xx"):
+        differing = {"complete": False, "identity_match": False, "status_class": status,
+                     "reasons": ("TRANSPORT_TIMEOUT",) if status == "transport" else ("HTTP_RESPONSE_REJECTED",),
+                     "projection": {"repository_id": 999, "account_id": 999}}
+        report = _run(tmp_path / status, request, Scripted(request, repository_after=differing))
+        assert report.target == "UNKNOWN", status
+
+
+@pytest.mark.parametrize("field", ["base_ref", "head_ref"])
+def test_target_changed_when_a_pr_ref_differs(tmp_path: Path, field: str) -> None:
+    request = _request()
+    pr = _pr(**{field: "somewhere-else"})
+    assert _run(tmp_path / field, request, Scripted(request, pr_after={"projection": pr})).target == "CHANGED"
+
+
+def test_same_requires_the_base_ref_observation_to_match(tmp_path: Path) -> None:
+    request = _request()
+    wrong = {"projection": {"requested_ref": "refs/heads/main", "returned_ref": "refs/heads/other",
+                            "object_sha": BASE}}
+    assert _run(tmp_path, request, Scripted(request, base_ref=wrong)).target == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    ("slot", "spec"),
+    [
+        ("head_checks", {"path_parameters": {"commit_sha": MERGE}}),
+        ("reviews", {"query_parameters": {"per_page": 100, "page": 2}}),
+        ("reviews", {"projection_version": "github-21a-rest-projections/0.1.0"}),
+        ("reviews", {"attempt_id": "attempt:sha256:" + "e" * 64}),
+    ],
+)
+def test_source_binding_rejects_mismatched_observations(tmp_path: Path, slot: str, spec: dict) -> None:
+    request = _request()
+    with pytest.raises(FactualCollectionError) as error:
+        _run(tmp_path, request, Scripted(request, **{slot: spec}))
+    assert error.value.code == "SOURCE_BINDING_INVALID"
+
+
+def test_preflight_rejects_a_fully_reused_binding(tmp_path: Path) -> None:
+    """§4.6: a self-consistent chain reused across two slots must still fail,
+    so the reuse rule is what fires — not the chain-consistency rule."""
+
+    request = _request()
+    for reused, source in (("pr_after", "pr_before"), ("repository_after", "repository")):
+        bindings = _bindings(request)
+        bindings[reused] = bindings[source]
+        executor = Scripted(request)
+        with pytest.raises(FactualCollectionError) as error:
+            _run(tmp_path / reused, request, executor, bindings=bindings)
+        assert error.value.code == "PREFLIGHT_INVALID"
+        assert executor.calls == []
+
+
+def test_duplicate_attempt_digests_cannot_be_constructed() -> None:
+    """§4.6 requires unused, distinct attempt digests. Two slots cannot share
+    one with valid records at all: Stage 21A binds the digest to its canonical
+    preimage, so a forged intent is rejected before this profile sees it. The
+    21C check remains as defence for injected results."""
+
+    request = _request()
+    shared = _binding(3, request).intent.attempt_id
+    with pytest.raises(Exception) as error:
+        _binding(6, request, attempt_id_override=shared)
+    assert "attempt_id" in str(error.value)
+
+
+def test_preflight_rejects_a_binding_with_the_wrong_page_ceiling(tmp_path: Path) -> None:
+    request = _request()
+    bindings = _bindings(request)
+    bindings["reviews"] = _binding(6, request, pages_override=3)
+    with pytest.raises(FactualCollectionError) as error:
+        _run(tmp_path, request, Scripted(request), bindings=bindings)
+    assert error.value.code == "PREFLIGHT_INVALID"
+
+
+def test_wrong_network_request_ceiling_is_refused_by_stage_21a() -> None:
+    """§4.6 also pins maximum_network_requests, but Stage 21A rejects a
+    mismatch first: an authorization must carry the endpoint ceiling plus one.
+    The 21C check remains as defence."""
+
+    with pytest.raises(Exception) as error:
+        _binding(6, _request(), requests_override=2)
+    assert "maximum_network_requests" in str(error.value)
+
+
+def test_first_stop_condition_is_never_overwritten(tmp_path: Path) -> None:  # §4.4
+    failed = {"complete": False, "status_class": "transport", "reasons": ("TRANSPORT_TIMEOUT",)}
+    _r, report = _post_action(tmp_path, pr_after={"projection": _pr()}, repository_after=failed)
+    assert report.stop_reason == "LINKAGE_CHANGED" and report.stop_slot == "pr_after"
+    assert _steps(report)["repository_after"] == "FAILED"
+    assert _steps(report)["object_format_after"] == "NOT_ATTEMPTED"
+
+
+def test_test_merge_sha_is_never_dispatched(tmp_path: Path) -> None:  # §5.1
+    open_with_test_merge = _pr(merge_sha=MERGE)
+    _r, report = _post_action(tmp_path, pr_after={"projection": open_with_test_merge})
+    steps = _steps(report)
+    assert [steps[s] for s in ("merge_commit", "merge_checks", "merge_status")] == ["NOT_APPLICABLE"] * 3
+    assert report.merge.state == "OPEN" and report.merge.merge_sha is None
+    assert report.stop_reason == "LINKAGE_CHANGED"
+
+
+@pytest.mark.parametrize(
+    ("parents", "expected"),
+    [
+        ([{"sha": BASE}, {"sha": HEAD}], "MATCH"),
+        ([{"sha": HEAD}, {"sha": BASE}], "DIFFERENT"),   # order matters
+        ([{"sha": OTHER}, {"sha": HEAD}], "DIFFERENT"),
+        ([{"sha": BASE}], "UNSUPPORTED"),                 # squash
+        ([{"sha": BASE}, {"sha": HEAD}, {"sha": OTHER}], "UNSUPPORTED"),
+    ],
+)
+def test_parents_comparison_arms(tmp_path: Path, parents: list, expected: str) -> None:  # §5.3
+    commit = {"projection": {"sha": MERGE, "parents": parents}}
+    _r, report = _post_action(tmp_path, pr_after={"projection": MERGED_PR}, merge_commit=commit)
+    assert report.merge.parents_comparison == expected
+
+
+def test_request_reference_must_bind_the_request(tmp_path: Path) -> None:
+    request = _request()
+    with pytest.raises(FactualCollectionError) as error:
+        collect_factual_report(
+            request=request,
+            request_reference=RecordReference(reference="github/factual-requests/req.json", content_hash=H9),
+            repository_profile=REPO, api_profile=API, bindings=_bindings(request),
+            executor=Scripted(request), attempt_claims_dir=tmp_path / "claims", clock=_clock,
+        )
+    assert error.value.code == "REQUEST_INVALID"
+
+
+@pytest.mark.parametrize("change", [{"mode": "fixture", "head_ref": "refs/heads/other"}, {"expected_human_id": 7}])
+def test_prior_report_request_must_match(tmp_path: Path, change: dict) -> None:  # §3
+    initial_request = _request()
+    initial = _run(tmp_path, initial_request, Scripted(initial_request, pr_after={"projection": MERGED_PR}))
+    request = _request(purpose="post_action", expected_merge_sha=MERGE,
+                       prior_report=RecordReference(reference="github/factual-reports/i.json",
+                                                    content_hash=initial.content_hash), **change)
+    with pytest.raises(FactualCollectionError) as error:
+        _run(tmp_path, request, Scripted(request), prior=initial, prior_request=initial_request)
+    assert error.value.code == "PRIOR_REPORT_INVALID"
+
+
+def _report_body(report: FactualReport) -> dict[str, Any]:
+    """Re-sealable body: strict mode needs tuples, not the JSON lists."""
+
+    body = report.model_dump(mode="json")
+    body.pop("content_hash")
+    body["observations"] = tuple(report.observations)
+    body["sections"] = tuple(report.sections)
+    body["steps"] = tuple(report.steps)
+    body["limitations"] = tuple(report.limitations)
+    body["merge"] = report.merge
+    body["request"] = report.request
+    body["pr_before"] = report.pr_before
+    body["pr_after"] = report.pr_after
+    return body
+
+
+def test_report_body_reseals_unchanged(tmp_path: Path) -> None:
+    """Guards the tampering test below from passing vacuously."""
+
+    request = _request()
+    report = _run(tmp_path, request, Scripted(request))
+    assert seal_record(FactualReport, _report_body(report)).content_hash == report.content_hash
+
+
+def test_report_record_closure_rejects_tampering(tmp_path: Path) -> None:  # §3
+    request = _request()
+    report = _run(tmp_path, request, Scripted(request))
+
+    def reseal(message: str, **changes) -> None:
+        with pytest.raises(PydanticValidationError) as error:
+            seal_record(FactualReport, {**_report_body(report), **changes})
+        assert message in str(error.value)
+
+    reseal("exact sorted section 7 list", limitations=LIMITATIONS[:-1])
+    reseal("exactly one step", observations=report.observations + report.observations[:1])
+    reseal("must equal their slot references", pr_before=None)
+    with pytest.raises(PydanticValidationError) as error:  # rejected at Step level
+        Step(slot="reviews", disposition="NOT_APPLICABLE", observation=None, reason=None)
+    assert "confined to the conditional slots" in str(error.value)
+    steps = list(report.steps)
+    steps[6] = Step(slot="reviews", disposition="NOT_ATTEMPTED", observation=None, reason=None)
+    reseal("exactly one step", steps=tuple(steps))  # drops an observation's owner
+    sections = list(report.sections)
+    sections[0] = Section(kind=sections[0].kind, coverage=sections[0].coverage, sources=())
+    reseal("slots' observations in slot order", sections=tuple(sections))
+
+
+def test_observations_are_sorted_by_operation_then_parameters(tmp_path: Path) -> None:  # §3
+    _r, report = _post_action(tmp_path, pr_after={"projection": MERGED_PR})
+    assert len(report.observations) == 16
+    order = [reference.reference for reference in report.observations]
+    # repository.get twice with identical parameters, check_runs.list and
+    # combined_status.get twice each with different commit SHAs: the sort key
+    # is (operation key, canonical parameters, content hash), so the head and
+    # merge SHA variants must be adjacent and ordered by their parameters.
+    head_checks, merge_checks = (
+        next(i for i, s in enumerate(report.steps) if s.slot == slot)
+        for slot in ("head_checks", "merge_checks")
+    )
+    head_ref = report.steps[head_checks].observation.reference
+    merge_ref = report.steps[merge_checks].observation.reference
+    # HEAD sha is "b"*40 and the merge sha "c"*40, so canonical parameters sort
+    # the head read before the merge read within the same operation key.
+    assert order.index(head_ref) < order.index(merge_ref)
+    by_key: dict[str, list[int]] = {}
+    for step in report.steps:
+        if step.observation is not None:
+            key = SLOT_BY_NAME[step.slot].operation_key
+            by_key.setdefault(key, []).append(order.index(step.observation.reference))
+    for key, positions in by_key.items():
+        assert positions == sorted(positions) or len(positions) == 1, key
+        assert max(positions) - min(positions) == len(positions) - 1, key  # adjacent
+
+
+def test_checks_section_partial_when_one_slot_fails(tmp_path: Path) -> None:  # §3 branch 4
+    request = _request()
+    failed = {"complete": False, "status_class": "transport", "reasons": ("TRANSPORT_TIMEOUT",)}
+    report = _run(tmp_path, request, Scripted(request, head_status=failed))
+    assert _coverage(report)["CHECKS"] == "PARTIAL"
+    assert report.stop_slot == "head_status"
+
+
+def test_coverage_requires_identity_and_pagination(tmp_path: Path) -> None:  # §3 branch 3
+    request = _request()
+    odd = {"identity_match": False}
+    assert _coverage(_run(tmp_path / "i", request, Scripted(request, reviews=odd)))["REVIEWS"] == "PARTIAL"
+    assert _coverage(_run(tmp_path / "p", request, Scripted(request, reviews={"pagination_complete": False})))["REVIEWS"] == "PARTIAL"

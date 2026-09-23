@@ -1302,6 +1302,75 @@ def test_coordinator_records_rejected_http_response_with_its_own_status_class(
     assert len(observation.pages) == 1  # the rejected response is retained
 
 
+def _status_class_probe(tmp_path: Path, outcome, *, monotonic_values=(0.0, 0.0, 0.0)):
+    """Run one real read and return the sealed observation's status class."""
+
+    fixture = _credential_fixture()
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport([outcome] if outcome is not None else [])
+    ticks = iter(monotonic_values)
+    result = execute_github_read(
+        workspace=workspace,
+        repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"],
+        provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"],
+        intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"],
+        request=fixture["request"],
+        provider=fixture["provider"],
+        transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a116",
+        clock=lambda: datetime(2026, 9, 9, 6, 0, 5, tzinfo=timezone.utc),
+        monotonic=lambda: next(ticks),
+    )
+    assert result.observation is not None
+    return result.observation
+
+
+def _json_response(status: int, body: dict) -> GitHubTransportResponse:
+    return GitHubTransportResponse(
+        status,
+        (("Content-Type", "application/json"),),
+        json.dumps(body, separators=(",", ":")).encode(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(404, "4xx"), (403, "4xx"), (302, "3xx"), (503, "5xx")],
+)
+def test_failure_observation_records_the_received_status_class(
+    tmp_path: Path, status: int, expected: str
+) -> None:
+    """Section 9: the status class is that of the response actually received."""
+
+    observation = _status_class_probe(tmp_path, _json_response(status, {"m": "x"}))
+    assert observation.status_class == expected
+    assert observation.reason_codes == ("HTTP_RESPONSE_REJECTED",)
+    assert not observation.complete
+
+
+def test_failure_without_a_usable_response_keeps_transport_or_none(
+    tmp_path: Path,
+) -> None:
+    """"transport" needs a transmission; "none" is nothing transmitted."""
+
+    transmitted = _status_class_probe(
+        tmp_path / "a", GitHubTransportFailure("TRANSPORT_TIMEOUT", before_headers=True)
+    )
+    assert transmitted.status_class == "transport"
+    # The operation deadline is checked before the first send, so nothing is
+    # transmitted and no response exists.
+    nothing = _status_class_probe(
+        tmp_path / "b", _json_response(200, {"x": 1}), monotonic_values=(0.0, 61.0)
+    )
+    assert nothing.status_class == "none"
+    assert nothing.reason_codes == ("TRANSPORT_TIMEOUT",)
+    assert nothing.pages == ()
+
+
 def test_coordinator_rejects_wrong_principal_before_claim_provider_or_transport(
     tmp_path: Path,
 ) -> None:

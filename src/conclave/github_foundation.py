@@ -2110,6 +2110,10 @@ class ProjectionResult:
     identity_match: bool
     reason_codes: tuple[str, ...]
     visibility: str
+    # The projection set this result was computed under. The observation
+    # envelope must record the same version, so the envelope always describes
+    # its own projection rather than relying on a caller's discipline.
+    projection_version: str = RESPONSE_PROJECTION_VERSION
 
 
 @dataclass(frozen=True)
@@ -2475,7 +2479,14 @@ def project_github_json(
         reasons.add("REPOSITORY_IDENTITY_MISMATCH")
     complete = not reasons and identity
     return ProjectionResult(
-        kind, normalized, count, complete, identity, tuple(sorted(reasons)), visibility
+        kind,
+        normalized,
+        count,
+        complete,
+        identity,
+        tuple(sorted(reasons)),
+        visibility,
+        projection_version,
     )
 
 
@@ -2796,6 +2807,7 @@ def project_github_responses(
         identity,
         tuple(sorted(reasons)),
         visibility,
+        projection_version,
     )
     return ResponseProjectionBundle(
         aggregate, tuple(item.item_count for item in projected)
@@ -2938,6 +2950,9 @@ def create_success_observation(
     status_class = f"{status // 100}xx"
     if status_class not in {"2xx", "3xx", "4xx", "5xx"}:
         raise GitHubFoundationFailure("HTTP_RESPONSE_REJECTED")
+    if projection.projection_version != api_profile.response_projection_version:
+        # The envelope must describe the projection it carries.
+        raise GitHubFoundationFailure("RESPONSE_PROJECTION_INVALID")
     counts = page_item_counts or (
         (projection.item_count,) if len(responses) == 1 else ()
     )

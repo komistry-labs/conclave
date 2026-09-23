@@ -5,9 +5,12 @@ Implements the adopted profile ``INCREMENT-21C-FACTUAL-PR-ASSISTANT-PROTOCOL.md`
 
 The profile answers factual questions about one pull request and never emits a
 readiness verdict, approval or overall green indicator. It records what Stage
-21A returns and never restates how Stage 21A works: every Step, stop, coverage,
-target and Merge value below is a pure function of Stage 21A results, so a
-validator can recompute the report from the observations it references.
+21A returns and never restates how Stage 21A works: every Step disposition,
+stop, coverage, target and Merge value below is a pure function of Stage 21A
+results, so a validator holding the referenced observations can recompute them.
+Three report fields are not recomputable that way and are recorded as given: a
+NO_OBSERVATION step's `reason` (Stage 21A emits it without an observation) and
+the informational `started_at` / `completed_at` readings.
 
 Scope of this module (profile §8): fixture-only. ``mode: live`` is refused, no
 transport or credential is created here, and each slot is executed by an
@@ -273,6 +276,17 @@ class FactualReport(GitHubRecord):
         by_slot = {s.slot: s.observation for s in self.steps}
         if self.pr_before != by_slot["pr_before"] or self.pr_after != by_slot["pr_after"]:
             raise ValueError("pr_before/pr_after must equal their slot references")
+        for section in self.sections:
+            expected = tuple(
+                by_slot[slot.name]
+                for slot in SLOTS
+                if slot.section == section.kind and by_slot[slot.name] is not None
+            )
+            if section.sources != expected:
+                raise ValueError("section sources must be its slots' observations in slot order")
+        commit_source = by_slot["merge_commit"]
+        if self.merge.commit_source is not None and self.merge.commit_source != commit_source:
+            raise ValueError("commit_source must be the merge_commit slot observation")
         return self
 
 
@@ -504,7 +518,11 @@ def derive_target(
 
 
 def derive_coverage(
-    kind: str, purpose: str, dispositions: Mapping[str, str], sources: tuple
+    kind: str,
+    purpose: str,
+    dispositions: Mapping[str, str],
+    sources: tuple,
+    observations: Mapping[str, GitHubObservation],
 ) -> str:
     """Profile §3 ordered coverage algorithm; first match wins."""
 
@@ -513,7 +531,14 @@ def derive_coverage(
     if not sources:
         return "UNAVAILABLE"
     slots = [slot.name for slot in SLOTS if slot.section == kind]
-    if all(dispositions[slot] == "OBSERVED" for slot in slots):
+    # §3 branch 3 names three conditions, each checked here rather than
+    # relying on Stage 21A deriving completeness from the other two.
+    if all(
+        dispositions[slot] == "OBSERVED"
+        and observations[slot].identity_match
+        and observations[slot].pagination_complete
+        for slot in slots
+    ):
         return "COMPLETE_WITHIN_ENDPOINT"
     return "PARTIAL"
 
@@ -641,7 +666,11 @@ def preflight(
         authorization_hashes.add(authorization.content_hash)
         attempt_ids.add(intent.attempt_id)
         budget += authorization.maximum_network_requests
-    if budget > MAXIMUM_TRANSMISSIONS:
+    # §6: pre-admit the whole fixed plan. Conditional reads are reserved even
+    # when eventually inapplicable, so the reservation is the full 16-slot
+    # ceiling regardless of which bindings this purpose supplies.
+    reserved = sum(slot.maximum_pages + 1 for slot in SLOTS)
+    if budget > MAXIMUM_TRANSMISSIONS or reserved > MAXIMUM_TRANSMISSIONS:
         raise FactualCollectionError("BUDGET_OVERFLOW")
 
 
@@ -813,7 +842,9 @@ def collect_factual_report(
         sections.append(
             Section(
                 kind=kind,
-                coverage=derive_coverage(kind, request.purpose, dispositions, sources),
+                coverage=derive_coverage(
+                    kind, request.purpose, dispositions, sources, observations
+                ),
                 sources=sources,
             )
         )
@@ -841,8 +872,8 @@ def collect_factual_report(
             "stop_reason": stop_reason,
             "stop_slot": stop_slot,
             "observations": ordered,
-            "pr_before": steps[3].observation,
-            "pr_after": steps[10].observation,
+            "pr_before": next(s.observation for s in steps if s.slot == "pr_before"),
+            "pr_after": next(s.observation for s in steps if s.slot == "pr_after"),
             "target": target,
             "sections": tuple(sections),
             "merge": merge,

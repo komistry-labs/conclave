@@ -70,7 +70,8 @@ is ever labelled with the 21A set under a factual profile (tested end to end).
 | §5.2 linkage and conditional slots | coordinator loop (`linkage_skip`) | post-action null/differing linkage, R4-6 initial and post-action stop tests, wrong-SHA error |
 | §5.3 parents and actor comparisons | `derive_merge` | `test_actor_comparison_is_exhaustive` (5 cases), happy path, R4-5 |
 | §6 storage error, no overwrite | `persist_factual_report` | persistence test; store-code test |
-| §7 limitations | `LIMITATIONS` | initial report test |
+| §7 limitations list | `LIMITATIONS` | initial report test |
+| §7 rendering duties and §4.5's age warning | **not implemented** — no display surface exists in this increment; an open obligation before any CLI or renderer ships (review 0001 §3) | none |
 | §8 fixture-only; no live or mutation path | `mode: live` refused; module imports no transport | `test_live_mode_is_refused`, `test_module_has_no_live_or_mutation_path` |
 
 The coordinator loop is written one branch per protocol clause, in the protocol's
@@ -113,13 +114,14 @@ failures are not relabelled, and a Stage 21A-owned regression test in
 
 Local, Windows / Python 3.12.10:
 
-- full suite **1,350 passed, 2 skipped** (1,301 pre-existing + 48 new + 1 Stage
-  21A regression test); the pre-existing 1,301 also pass unchanged after both
-  the rule-4 extension and the §5 correction;
-- mutation checks on four critical rules: three killed (R4-6 initial
-  NOT_APPLICABLE — 20 failures; tolerate `transport` — 1; null `remaining` — 1);
-  the fourth (`actor_id is not None` guard) is an equivalent mutation because a
-  null `merged_by` already fails the `User` type check;
+- full suite **1,386 passed, 2 skipped** after implementation review 0001 and
+  its remediation (1,301 pre-existing unchanged, the rest new);
+- mutation: the author's first check sampled only four rules and was not a
+  mutation-adequacy result — review 0001 seat 4 ran 51 mutants and found 34
+  survivors. After remediation, a 26-mutant re-run across the rules those
+  survivors covered kills all 26. Two of seat 4's findings proved untestable
+  because Stage 21A rejects the input (duplicate attempt digest; wrong
+  `maximum_network_requests`); both are recorded as 21A-enforced;
 - wheel builds offline (48 members = 47 + `github_factual.py`, no test files);
   the module imports from the unpacked wheel in isolation.
 
