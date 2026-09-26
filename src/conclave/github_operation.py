@@ -268,6 +268,7 @@ def execute_github_read(
             repository=repository_profile,
             intent=intent,
             maximum_page_bytes=api_profile.maximum_response_body_bytes_per_page,
+            projection_version=api_profile.response_projection_version,
         )
         observation = create_success_observation(
             observation_id=observation_id,
@@ -303,11 +304,19 @@ def execute_github_read(
             if isinstance(exc, GitHubOperationExecutionFailure)
             else bool(failure_responses)
         )
+        # Stage 21A section 9: an observation's status class describes the
+        # response that was actually received. A rejected HTTP response is its
+        # own class (for example 4xx for 403/404); "transport" is reserved for
+        # failures with no usable response, and "none" for nothing transmitted.
+        if failure_responses and 200 <= failure_responses[-1].status < 600:
+            status_class = f"{failure_responses[-1].status // 100}xx"
+        else:
+            status_class = "transport" if transmitted else "none"
         observation = create_failure_observation(
             observation_id=observation_id,
             observed_at=clock().replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ"),
             reason_codes=(exc.reason_code,),
-            status_class="transport" if transmitted else "none",
+            status_class=status_class,
             responses=failure_responses,
             repository_profile=repository_profile,
             api_profile=api_profile,

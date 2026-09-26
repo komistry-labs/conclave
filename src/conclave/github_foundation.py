@@ -40,6 +40,14 @@ ATTEMPT_CLAIM_SCHEMA = "github-operation-attempt-claim/0.1.0"
 ATTEMPT_PREIMAGE_SCHEMA = "github-operation-attempt-preimage/0.1.0"
 ENDPOINT_TABLE_VERSION = "github-21a-rest-endpoints/0.1.0"
 RESPONSE_PROJECTION_VERSION = "github-21a-rest-projections/0.1.0"
+# Stage 21C factual profile (adopted ed45fb9f…, §2 rule 4): a separately
+# versioned API-profile family selecting a separately versioned projection set.
+# Old validators reject both; the 21A family above is unchanged.
+FACTUAL_API_PROFILE_SCHEMA = "github-factual-api-profile/0.1.0"
+FACTUAL_RESPONSE_PROJECTION_VERSION = "github-factual-rest-projections/0.1.0"
+RESPONSE_PROJECTION_VERSIONS = frozenset(
+    {RESPONSE_PROJECTION_VERSION, FACTUAL_RESPONSE_PROJECTION_VERSION}
+)
 ATTEMPT_DOMAIN = b"CONCLAVE-GITHUB-OPERATION-ATTEMPT-V1\x00"
 
 Hash = str
@@ -288,6 +296,21 @@ class GitHubApiProfile(GitHubRecord):
     endpoint_table_version: Literal[ENDPOINT_TABLE_VERSION] = ENDPOINT_TABLE_VERSION
     response_projection_version: Literal[RESPONSE_PROJECTION_VERSION] = (
         RESPONSE_PROJECTION_VERSION
+    )
+
+
+class GitHubFactualApiProfile(GitHubApiProfile):
+    """Stage 21C factual API profile: every 21A section 4.2 field and constant,
+    except the family, schema version and projection-set names.
+
+    Validating these bytes as ``GitHubApiProfile`` fails on each renamed
+    literal, so no old validator can interpret them under the 21A profile.
+    """
+
+    profile: Literal["github-factual-api-profile"] = "github-factual-api-profile"
+    schema_version: Literal[FACTUAL_API_PROFILE_SCHEMA] = FACTUAL_API_PROFILE_SCHEMA
+    response_projection_version: Literal[FACTUAL_RESPONSE_PROJECTION_VERSION] = (
+        FACTUAL_RESPONSE_PROJECTION_VERSION
     )
 
 
@@ -1668,9 +1691,28 @@ def run_github_transport(
             responses=tuple(responses),
         ) from exc
     finally:
-        if token is not None:
-            token.release()
-        lease.close()
+        # Cleanup runs after the responses are already in hand. A failure here
+        # still replaces the in-flight outcome, as before, but it must carry the
+        # retained responses with it: section 9 defines an observation's status
+        # class as that of the response actually received, and returning bare
+        # meant execute_github_read saw no responses and sealed "none" with zero
+        # pages after a completed 200 (21A correction 0002).
+        cleanup: GitHubFoundationFailure | None = None
+        try:
+            if token is not None:
+                token.release()
+        except GitHubFoundationFailure as exc:
+            cleanup = exc
+        try:
+            lease.close()
+        except GitHubFoundationFailure as exc:
+            cleanup = cleanup or exc
+        if cleanup is not None:
+            raise GitHubOperationExecutionFailure(
+                cleanup.reason_code,
+                transmitted=transmissions > 0,
+                responses=tuple(responses),
+            ) from cleanup
 
 
 _HTTPS_SENTINEL = object()
@@ -2087,6 +2129,10 @@ class ProjectionResult:
     identity_match: bool
     reason_codes: tuple[str, ...]
     visibility: str
+    # The projection set this result was computed under. The observation
+    # envelope must record the same version, so the envelope always describes
+    # its own projection rather than relying on a caller's discipline.
+    projection_version: str = RESPONSE_PROJECTION_VERSION
 
 
 @dataclass(frozen=True)
@@ -2109,9 +2155,12 @@ def project_github_json(
     value: Any,
     repository: GitHubRepositoryProfile,
     intent: GitHubOperationIntent,
+    projection_version: str = RESPONSE_PROJECTION_VERSION,
 ) -> ProjectionResult:
     if operation_key != intent.operation_key or operation_key not in ENDPOINTS:
         raise GitHubFoundationFailure("INTENT_CONFLICT")
+    if projection_version not in RESPONSE_PROJECTION_VERSIONS:
+        raise GitHubFoundationFailure("PROFILE_INVALID")
     reasons: set[str] = set()
     identity = True
     visibility = "complete_for_endpoint"
@@ -2249,6 +2298,17 @@ def project_github_json(
                 _required_nullable(raw, "merged_at"), nullable=True
             ),
         }
+        if projection_version == FACTUAL_RESPONSE_PROJECTION_VERSION:
+            # Adopted 21C profile §5 and §2 rule 4(c)-(d): both fields are
+            # required keys; a null value means unavailable and, unlike other
+            # 21A identity-bearing nulls, affects neither completeness nor
+            # identity_match. Login, email and URLs are discarded by _actor.
+            normalized["merge_commit_sha"] = _oid(
+                _required_nullable(raw, "merge_commit_sha"), repository, nullable=True
+            )
+            normalized["merged_by"] = _actor(
+                _required_nullable(raw, "merged_by"), reasons, nullable=True
+            )
         kind, count = "pull_request", 1
     elif operation_key == "check_runs.list":
         raw = _object(value)
@@ -2438,7 +2498,14 @@ def project_github_json(
         reasons.add("REPOSITORY_IDENTITY_MISMATCH")
     complete = not reasons and identity
     return ProjectionResult(
-        kind, normalized, count, complete, identity, tuple(sorted(reasons)), visibility
+        kind,
+        normalized,
+        count,
+        complete,
+        identity,
+        tuple(sorted(reasons)),
+        visibility,
+        projection_version,
     )
 
 
@@ -2682,6 +2749,7 @@ def project_github_responses(
     repository: GitHubRepositoryProfile,
     intent: GitHubOperationIntent,
     maximum_page_bytes: int,
+    projection_version: str = RESPONSE_PROJECTION_VERSION,
 ) -> ResponseProjectionBundle:
     if not responses:
         raise GitHubFoundationFailure("RESPONSE_PROJECTION_INVALID")
@@ -2701,6 +2769,7 @@ def project_github_responses(
                 value=value,
                 repository=repository,
                 intent=intent,
+                projection_version=projection_version,
             )
         )
     if len(projected) == 1:
@@ -2757,6 +2826,7 @@ def project_github_responses(
         identity,
         tuple(sorted(reasons)),
         visibility,
+        projection_version,
     )
     return ResponseProjectionBundle(
         aggregate, tuple(item.item_count for item in projected)
@@ -2806,9 +2876,9 @@ class GitHubObservation(GitHubRecord):
     observed_at: str
     status_class: Literal["2xx", "3xx", "4xx", "5xx", "transport", "none"]
     pages: tuple[ObservationPage, ...]
-    response_projection_version: Literal[RESPONSE_PROJECTION_VERSION] = (
-        RESPONSE_PROJECTION_VERSION
-    )
+    response_projection_version: Literal[
+        RESPONSE_PROJECTION_VERSION, FACTUAL_RESPONSE_PROJECTION_VERSION
+    ] = RESPONSE_PROJECTION_VERSION
     projection: dict[str, Any]
     complete: bool
     pagination_complete: bool
@@ -2899,6 +2969,9 @@ def create_success_observation(
     status_class = f"{status // 100}xx"
     if status_class not in {"2xx", "3xx", "4xx", "5xx"}:
         raise GitHubFoundationFailure("HTTP_RESPONSE_REJECTED")
+    if projection.projection_version != api_profile.response_projection_version:
+        # The envelope must describe the projection it carries.
+        raise GitHubFoundationFailure("RESPONSE_PROJECTION_INVALID")
     counts = page_item_counts or (
         (projection.item_count,) if len(responses) == 1 else ()
     )
@@ -2962,7 +3035,7 @@ def create_success_observation(
             "observed_at": observed_at,
             "status_class": status_class,
             "pages": pages,
-            "response_projection_version": RESPONSE_PROJECTION_VERSION,
+            "response_projection_version": api_profile.response_projection_version,
             "projection": projection.normalized,
             "complete": complete,
             "pagination_complete": complete,
@@ -3049,7 +3122,7 @@ def create_failure_observation(
             "observed_at": observed_at,
             "status_class": status_class,
             "pages": pages,
-            "response_projection_version": RESPONSE_PROJECTION_VERSION,
+            "response_projection_version": api_profile.response_projection_version,
             "projection": {"visibility": "not_observed"},
             "complete": False,
             "pagination_complete": False,

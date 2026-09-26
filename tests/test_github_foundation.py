@@ -32,6 +32,7 @@ from conclave.github_foundation import (
     DurableLeaseEvidenceAdmission,
     GitHubApiProfile,
     GitHubCredentialProviderKey,
+    FACTUAL_RESPONSE_PROJECTION_VERSION,
     GitHubFoundationFailure,
     GitHubOperationAttemptClaim,
     GitHubOperationAuthorization,
@@ -47,6 +48,7 @@ from conclave.github_foundation import (
     create_production_https_transport,
     create_failure_observation,
     create_success_observation,
+    RESPONSE_PROJECTION_VERSION,
     parse_bounded_json,
     project_github_json,
     project_github_responses,
@@ -1250,6 +1252,127 @@ def test_governed_coordinator_seals_complete_chain_and_safe_ledger(
     assert "lease-fixture-001" not in serialized
 
 
+def test_coordinator_records_rejected_http_response_with_its_own_status_class(
+    tmp_path: Path,
+) -> None:
+    """Section 9: the status class describes the response actually received.
+    A rejected HTTP response is its own class; "transport" is reserved for
+    failures with no usable response."""
+
+    fixture = _credential_fixture()
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport(
+        [
+            GitHubTransportResponse(
+                404,
+                (("Content-Type", "application/json"),),
+                json.dumps({"message": "Not Found"}, separators=(",", ":")).encode(),
+            )
+        ]
+    )
+    clock = _Clock(
+        "2026-09-09T06:00:00Z",
+        "2026-09-09T06:00:03Z",
+        "2026-09-09T06:00:04Z",
+        "2026-09-09T06:00:05Z",
+        "2026-09-09T06:00:06Z",
+        "2026-09-09T06:00:07Z",
+        "2026-09-09T06:00:08Z",
+        "2026-09-09T06:00:10Z",
+    )
+    result = execute_github_read(
+        workspace=workspace,
+        repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"],
+        provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"],
+        intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"],
+        request=fixture["request"],
+        provider=fixture["provider"],
+        transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a115",
+        clock=clock,
+        monotonic=lambda: 0.0,
+    )
+    observation = result.observation
+    assert observation is not None and not observation.complete
+    assert observation.status_class == "4xx"
+    assert observation.reason_codes == ("HTTP_RESPONSE_REJECTED",)
+    assert observation.visibility == "not_observed"
+    assert len(observation.pages) == 1  # the rejected response is retained
+
+
+def _status_class_probe(tmp_path: Path, outcome, *, monotonic_values=(0.0, 0.0, 0.0)):
+    """Run one real read and return the sealed observation's status class."""
+
+    fixture = _credential_fixture()
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport([outcome] if outcome is not None else [])
+    ticks = iter(monotonic_values)
+    result = execute_github_read(
+        workspace=workspace,
+        repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"],
+        provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"],
+        intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"],
+        request=fixture["request"],
+        provider=fixture["provider"],
+        transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a116",
+        clock=lambda: datetime(2026, 9, 9, 6, 0, 5, tzinfo=timezone.utc),
+        monotonic=lambda: next(ticks),
+    )
+    assert result.observation is not None
+    return result.observation
+
+
+def _json_response(status: int, body: dict) -> GitHubTransportResponse:
+    return GitHubTransportResponse(
+        status,
+        (("Content-Type", "application/json"),),
+        json.dumps(body, separators=(",", ":")).encode(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(404, "4xx"), (403, "4xx"), (302, "3xx"), (503, "5xx")],
+)
+def test_failure_observation_records_the_received_status_class(
+    tmp_path: Path, status: int, expected: str
+) -> None:
+    """Section 9: the status class is that of the response actually received."""
+
+    observation = _status_class_probe(tmp_path, _json_response(status, {"m": "x"}))
+    assert observation.status_class == expected
+    assert observation.reason_codes == ("HTTP_RESPONSE_REJECTED",)
+    assert not observation.complete
+
+
+def test_failure_without_a_usable_response_keeps_transport_or_none(
+    tmp_path: Path,
+) -> None:
+    """"transport" needs a transmission; "none" is nothing transmitted."""
+
+    transmitted = _status_class_probe(
+        tmp_path / "a", GitHubTransportFailure("TRANSPORT_TIMEOUT", before_headers=True)
+    )
+    assert transmitted.status_class == "transport"
+    # The operation deadline is checked before the first send, so nothing is
+    # transmitted and no response exists.
+    nothing = _status_class_probe(
+        tmp_path / "b", _json_response(200, {"x": 1}), monotonic_values=(0.0, 61.0)
+    )
+    assert nothing.status_class == "none"
+    assert nothing.reason_codes == ("TRANSPORT_TIMEOUT",)
+    assert nothing.pages == ()
+
+
 def test_coordinator_rejects_wrong_principal_before_claim_provider_or_transport(
     tmp_path: Path,
 ) -> None:
@@ -1546,3 +1669,165 @@ def test_failure_observation_and_diagnostic_are_closed_and_non_authoritative(
     with pytest.raises(GitHubFoundationFailure):
         safe_failure_diagnostic(operation_key="ref.get", reason_code="TOKEN=secret")
     lease.close()
+
+
+# ------------------------------------------- Stage 21C rule-4 guards (review 0002)
+
+
+def test_projection_version_outside_the_closed_set_is_refused() -> None:
+    """The rule-4 extension widened the projection version to a closed set of
+    two. Anything else is a profile error, not a silently accepted label."""
+
+    fixture = _credential_fixture()
+    body = json.dumps(
+        {"ref": "refs/heads/main", "node_id": "REF_x",
+         "object": {"sha": "a" * 40, "type": "commit"}},
+        separators=(",", ":"),
+    ).encode()
+    value = parse_bounded_json(body, maximum_bytes=2_097_152)
+
+    for version in (RESPONSE_PROJECTION_VERSION, FACTUAL_RESPONSE_PROJECTION_VERSION):
+        result = project_github_json(
+            operation_key="ref.get",
+            value=value,
+            repository=fixture["repository_profile"],
+            intent=fixture["intent"],
+            projection_version=version,
+        )
+        assert result.projection_version == version
+
+    for rejected in ("github-read-projection/0.9.0", "", "github-factual-projection"):
+        with pytest.raises(GitHubFoundationFailure) as error:
+            project_github_json(
+                operation_key="ref.get",
+                value=value,
+                repository=fixture["repository_profile"],
+                intent=fixture["intent"],
+                projection_version=rejected,
+            )
+        assert error.value.reason_code == "PROFILE_INVALID"
+
+
+def test_observation_envelope_must_describe_the_projection_it_carries(
+    tmp_path: Path,
+) -> None:
+    """An observation labelled with one projection set must not carry a
+    projection produced under another: the envelope's
+    response_projection_version comes from the API profile, and a mismatch is
+    sealed by no one."""
+
+    fixture = _credential_fixture()
+    lease = _prepare_fixture_lease(fixture, tmp_path / "lease")
+    body = json.dumps(
+        {"ref": "refs/heads/main", "node_id": "REF_x",
+         "object": {"sha": "a" * 40, "type": "commit"}},
+        separators=(",", ":"),
+    ).encode()
+    response = GitHubTransportResponse(
+        200,
+        (
+            ("X-RateLimit-Limit", "5000"),
+            ("X-RateLimit-Remaining", "4999"),
+            ("X-RateLimit-Reset", "1788937200"),
+            ("X-RateLimit-Resource", "core"),
+        ),
+        body,
+    )
+    value = parse_bounded_json(body, maximum_bytes=2_097_152)
+
+    def build(projection_version: str):
+        return create_success_observation(
+            observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a114",
+            observed_at="2026-09-09T06:00:10Z",
+            responses=(response,),
+            repository_profile=fixture["repository_profile"],
+            api_profile=fixture["api_profile"],
+            authorization=fixture["authorization"],
+            intent=fixture["intent"],
+            attempt_claim=fixture["attempt_claim"],
+            lease_evidence=lease.evidence,
+            projection=project_github_json(
+                operation_key="ref.get",
+                value=value,
+                repository=fixture["repository_profile"],
+                intent=fixture["intent"],
+                projection_version=projection_version,
+            ),
+        )
+
+    # The api_profile here is the Stage 21A one, so its own version seals.
+    matching = build(fixture["api_profile"].response_projection_version)
+    assert matching.response_projection_version == RESPONSE_PROJECTION_VERSION
+
+    with pytest.raises(GitHubFoundationFailure) as error:
+        build(FACTUAL_RESPONSE_PROJECTION_VERSION)
+    assert error.value.reason_code == "RESPONSE_PROJECTION_INVALID"
+    lease.close()
+
+
+def test_cleanup_failure_retains_the_response_it_already_received(
+    tmp_path: Path,
+) -> None:
+    """Stage 21A §9/§10: the status class is that of the response actually
+    received, and "none" means nothing was transmitted.
+
+    Credential cleanup runs after the pages are in hand. When it failed, the
+    responses were dropped on the way out of run_github_transport and a
+    completed 200 sealed as "none" with zero pages (21A correction 0002).
+    """
+
+    fixture = _credential_fixture()
+    resolve = fixture["provider"].resolve_once
+
+    class FailingValidator:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def close(self):
+            raise RuntimeError("pair validator close failed")
+
+    def resolve_with_failing_cleanup(request):
+        envelope = resolve(request)
+        envelope.pair_validator = FailingValidator(envelope.pair_validator)
+        return envelope
+
+    fixture["provider"].resolve_once = resolve_with_failing_cleanup
+    workspace = Workspace.create(tmp_path / "workspace", principal="arthur")
+    initialise_ledger(workspace, workspace.load_config())
+    transport = FixtureGitHubTransport(
+        [
+            _json_response(
+                200,
+                {
+                    "ref": "refs/heads/main",
+                    "node_id": "REF_x",
+                    "object": {"sha": "a" * 40, "type": "commit"},
+                },
+            )
+        ]
+    )
+    ticks = iter((0.0, 0.0, 0.0))
+    result = execute_github_read(
+        workspace=workspace,
+        repository_profile=fixture["repository_profile"],
+        api_profile=fixture["api_profile"],
+        provider_key=fixture["provider_key"],
+        authorization=fixture["authorization"],
+        intent=fixture["intent"],
+        attempt_claim=fixture["attempt_claim"],
+        request=fixture["request"],
+        provider=fixture["provider"],
+        transport=transport,
+        observation_id="01890f3e-7b1a-7cc2-8b4f-8f2e9c90a117",
+        clock=lambda: datetime(2026, 9, 9, 6, 0, 5, tzinfo=timezone.utc),
+        monotonic=lambda: next(ticks),
+    )
+    observation = result.observation
+    assert observation is not None
+    assert observation.reason_codes == ("CREDENTIAL_CLEANUP_FAILED",)
+    assert observation.status_class == "2xx"  # not "none"
+    assert len(observation.pages) == 1  # the received page is retained
+    assert not observation.complete  # still a failure observation
