@@ -1691,9 +1691,28 @@ def run_github_transport(
             responses=tuple(responses),
         ) from exc
     finally:
-        if token is not None:
-            token.release()
-        lease.close()
+        # Cleanup runs after the responses are already in hand. A failure here
+        # still replaces the in-flight outcome, as before, but it must carry the
+        # retained responses with it: section 9 defines an observation's status
+        # class as that of the response actually received, and returning bare
+        # meant execute_github_read saw no responses and sealed "none" with zero
+        # pages after a completed 200 (21A correction 0002).
+        cleanup: GitHubFoundationFailure | None = None
+        try:
+            if token is not None:
+                token.release()
+        except GitHubFoundationFailure as exc:
+            cleanup = exc
+        try:
+            lease.close()
+        except GitHubFoundationFailure as exc:
+            cleanup = cleanup or exc
+        if cleanup is not None:
+            raise GitHubOperationExecutionFailure(
+                cleanup.reason_code,
+                transmitted=transmissions > 0,
+                responses=tuple(responses),
+            ) from cleanup
 
 
 _HTTPS_SENTINEL = object()

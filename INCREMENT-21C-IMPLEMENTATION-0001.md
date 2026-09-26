@@ -32,8 +32,9 @@ Branch: `feat/increment-21c-factual-assistant`, based on `main` at `276b0f7`.
 | `src/conclave/github_factual.py` | new — records, plan, decision rules, coordinator |
 | `src/conclave/github_foundation.py` | additive — factual API profile and PR projection extension (rule 4) |
 | `src/conclave/github_operation.py` | passes the profile's projection version to projection; status-class correction (§5) |
-| `tests/test_github_factual.py` | new — 48 tests |
-| `tests/test_github_foundation.py` | one added Stage 21A regression test for the §5 correction |
+| `src/conclave/github_foundation.py` | cleanup-failure correction (`INCREMENT-21A-IMPLEMENTATION-CORRECTION-0002.md`) |
+| `tests/test_github_factual.py` | new — 95 tests |
+| `tests/test_github_foundation.py` | Stage 21A regression tests for the §5 correction, correction 0002, and the rule-4 projection guards |
 
 ## 3. Stage 21A changes — exactly profile §2 rule 4
 
@@ -114,14 +115,18 @@ failures are not relabelled, and a Stage 21A-owned regression test in
 
 Local, Windows / Python 3.12.10:
 
-- full suite **1,386 passed, 2 skipped** after implementation review 0001 and
-  its remediation (1,301 pre-existing unchanged, the rest new);
+- full suite **1,405 passed, 2 skipped** after implementation reviews 0001 and
+  0002 and their remediation (1,301 pre-existing unchanged, the rest new);
 - mutation: the author's first check sampled only four rules and was not a
   mutation-adequacy result — review 0001 seat 4 ran 51 mutants and found 34
-  survivors. After remediation, a 26-mutant re-run across the rules those
-  survivors covered kills all 26. Two of seat 4's findings proved untestable
-  because Stage 21A rejects the input (duplicate attempt digest; wrong
-  `maximum_network_requests`); both are recorded as 21A-enforced;
+  survivors. Review 0002 found that two of the round-1 fixes were inert or
+  half-enforced (review 0002 §3). After the round-2 remediation a 62-mutant
+  battery across the decision rules, record closures, the rule-4 projection
+  extension and both Stage 21A corrections kills all 62. Three findings proved
+  untestable from conforming Stage 21A records because 21A rejects the input
+  (duplicate attempt digest; wrong `maximum_network_requests`; any binding set
+  overflowing the 95-transmission plan); all three are recorded as 21A-enforced
+  and their 21C guards are tested against injected records;
 - wheel builds offline (48 members = 47 + `github_factual.py`, no test files);
   the module imports from the unpacked wheel in isolation.
 
@@ -137,7 +142,9 @@ them.
 ## 8. Open before implementation acceptance
 
 1. Implementation review against the adopted profile (the lineage's Council
-   practice), including this record's claims and the Stage 21A correction
-   (`INCREMENT-21A-IMPLEMENTATION-CORRECTION-0001.md`).
+   practice), including this record's claims and the two Stage 21A corrections
+   (`INCREMENT-21A-IMPLEMENTATION-CORRECTION-0001.md`, `-0002.md`). Rounds 0001
+   and 0002 are recorded; round 0002's remediation is not itself reviewed and
+   its test-adequacy seat did not report.
 2. Four-platform CI and installed-wheel probe on the PR.
 3. Merge — Arthur's act, asked separately.

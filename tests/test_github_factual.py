@@ -947,39 +947,131 @@ def test_report_persists_immutably_and_revalidates(tmp_path: Path) -> None:  # �
     assert persist_factual_report(tmp_path, report) == path  # idempotent, no overwrite
 
 
-def test_no_live_or_mutation_path_is_reachable() -> None:  # §8
-    """Reachability, not a source grep: nothing this module can reach builds a
-    live transport or a publication (mutation) dispatch, and the production
-    transport refuses for every repository profile the package can construct."""
+_FORBIDDEN_NAMES = frozenset(
+    {
+        "HTTPSGitHubTransport",
+        "create_production_https_transport",
+        "prepare_credential_lease",
+        "run_github_transport",
+        "execute_github_read",
+    }
+)
 
-    import importlib
-    import conclave.github_factual as factual
-    from conclave.github_foundation import create_production_https_transport
+
+def _conclave_source(name: str) -> str:
+    import conclave
+
+    return (Path(conclave.__file__).parent / f"{name}.py").read_text(encoding="utf-8")
+
+
+def _module_exists(name: str) -> bool:
+    import conclave
+
+    return (Path(conclave.__file__).parent / f"{name}.py").is_file()
+
+
+def _local_imports(source: str) -> set[str]:
+    """Every first-party module this source imports, at ANY nesting depth.
+
+    ast.walk descends into function and class bodies, so a lazy
+    ``from .github_publication_engine import ...`` inside a helper is found —
+    the hole that let a module-namespace walk be defeated (review 0002).
+    """
+
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level in (0, 1):
+            head = node.module.split(".")[0]
+            found.add(head if node.level == 1 else node.module.removeprefix("conclave.").split(".")[0])
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("conclave."):
+                    found.add(alias.name.split(".")[1])
+    return found
+
+
+def _referenced_names(source: str) -> set[str]:
+    """Every identifier the source mentions, at any depth: bare names, imported
+    names and attribute tails, so ``foundation.HTTPSGitHubTransport()`` and a
+    function-local ``from .github_foundation import HTTPSGitHubTransport`` are
+    both visible."""
+
+    import ast
+
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                found.add(alias.name.split(".")[-1])
+                if alias.asname:
+                    found.add(alias.asname)
+    return found
+
+
+def test_module_references_no_transport_or_credential_machinery() -> None:  # §8
+    """§8 fixture-only, as a source property of THIS module at any nesting depth.
+
+    The claim is deliberately narrow and true: github_factual creates no
+    transport, lease or dispatch of its own; every slot is run by an injected
+    executor. It does import github_operation for the GitHubReadResult shape,
+    and github_operation does build a live path — so a transitive 'nothing
+    reachable builds a transport' claim would be false, and the previous test
+    made it."""
+
+    referenced = _referenced_names(_conclave_source("github_factual"))
+    assert not (referenced & _FORBIDDEN_NAMES), sorted(referenced & _FORBIDDEN_NAMES)
+
+
+def test_no_mutation_module_is_reachable_at_any_depth() -> None:  # §8
+    """Transitive import closure over first-party modules, computed from source
+    so that an import hidden inside a function body is still counted."""
 
     seen: set[str] = set()
-    pending = [factual.__name__]
+    pending = ["github_factual"]
     while pending:
         name = pending.pop()
-        if name in seen:
+        if name in seen or not _module_exists(name):
             continue
         seen.add(name)
-        module = importlib.import_module(name)
-        for value in vars(module).values():
-            imported = getattr(value, "__module__", None) or getattr(value, "__name__", None)
-            if isinstance(imported, str) and imported.startswith("conclave."):
-                pending.append(imported)
+        pending.extend(_local_imports(_conclave_source(name)))
 
-    # No publication (mutation) module is reachable at all.
-    assert not {name for name in seen if "publication" in name}, seen
+    assert "github_foundation" in seen and "github_operation" in seen  # closure is real
+    assert not {name for name in seen if "publication" in name}, sorted(seen)
 
-    # This module binds no transport or credential machinery of its own, so no
-    # live path exists here even though github_foundation defines one.
-    own = vars(factual)
-    for forbidden in ("HTTPSGitHubTransport", "create_production_https_transport",
-                      "prepare_credential_lease", "run_github_transport", "execute_github_read"):
-        assert forbidden not in own, forbidden
 
-    # The real gate is by construction: live use cannot be switched on.
+def test_the_reachability_detectors_catch_a_lazy_import() -> None:
+    """Guards the two tests above from passing vacuously.
+
+    Seat 3 of review 0002 defeated the previous module-namespace walk with
+    exactly this shape — a live transport and a publication-engine import
+    placed inside a function body — and all tests still passed."""
+
+    defeat = chr(10).join(
+        (
+            'from __future__ import annotations',
+            'def collect():',
+            '    from .github_publication_engine import publish',
+            '    from .github_foundation import HTTPSGitHubTransport',
+            '    return HTTPSGitHubTransport(), publish',
+        )
+    )
+    assert "github_publication_engine" in _local_imports(defeat)
+    assert _referenced_names(defeat) & _FORBIDDEN_NAMES == {"HTTPSGitHubTransport"}
+
+    clean = 'from .github_operation import GitHubReadResult'
+    assert _local_imports(clean) == {"github_operation"}
+    assert not (_referenced_names(clean) & _FORBIDDEN_NAMES)
+
+
+def test_live_use_cannot_be_switched_on() -> None:  # §8
+    from conclave.github_foundation import create_production_https_transport
+
     assert GitHubRepositoryProfile.model_fields["live_use_allowed"].annotation is not bool
     with pytest.raises(GitHubFoundationFailure):
         create_production_https_transport(REPO, API)
@@ -1243,3 +1335,140 @@ def test_coverage_requires_identity_and_pagination(tmp_path: Path) -> None:  # �
     odd = {"identity_match": False}
     assert _coverage(_run(tmp_path / "i", request, Scripted(request, reviews=odd)))["REVIEWS"] == "PARTIAL"
     assert _coverage(_run(tmp_path / "p", request, Scripted(request, reviews={"pagination_complete": False})))["REVIEWS"] == "PARTIAL"
+
+
+# --------------------------------------------------- review-0002 regression tests
+
+
+def test_plan_reservation_is_evaluated_against_real_ceilings() -> None:  # §6
+    """Guards the overflow test below: a conforming initial binding set sits
+    exactly at the 95-transmission plan, so the check compares supplied
+    ceilings against the reserved remainder, not the plan against itself."""
+
+    request = _request()
+    bindings = _bindings(request)
+    declared = sum(b.authorization.maximum_network_requests for b in bindings.values())
+    reserved = sum(s.maximum_pages + 1 for s in SLOTS if s.name not in bindings)
+    assert declared == 71 and reserved == 24
+    assert declared + reserved == MAXIMUM_TRANSMISSIONS
+
+
+def test_plan_overflow_is_refused_for_an_injected_binding(tmp_path: Path) -> None:  # §6
+    """The overflow guard is defence against injected bindings, and only that.
+
+    Stage 21A pins every authorization's maximum_network_requests to its own
+    endpoint's page ceiling plus one, and the 16-slot plan is frozen at exactly
+    95 transmissions, so no *conforming* binding set can overflow -- the same
+    class as the two findings review 0001 recorded as 21A-enforced. The guard
+    is reachable only by constructing a record Stage 21A would refuse to seal,
+    which is what this test does. The previous form could not fire even then,
+    because it compared the plan against itself (95 > 95).
+    """
+
+    request = _request()
+    index = next(i for i, s in enumerate(SLOTS) if s.maximum_pages == 1)
+    name = SLOTS[index].name
+    sound = _binding(index, request)
+    injected = SlotBinding(
+        authorization=GitHubOperationAuthorization.model_construct(
+            **{**dict(sound.authorization), "maximum_network_requests": 11}
+        ),
+        intent=sound.intent,
+        attempt_claim=sound.attempt_claim,
+    )
+    assert injected.authorization.maximum_network_requests == 11
+    with pytest.raises(PydanticValidationError):  # 21A would never seal it
+        seal_record(
+            GitHubOperationAuthorization,
+            {k: v for k, v in dict(sound.authorization).items() if k != "content_hash"}
+            | {"maximum_network_requests": 11},
+        )
+
+    bindings = _bindings(request, **{name: injected})
+    executor = Scripted(request)
+    with pytest.raises(FactualCollectionError) as error:
+        _run(tmp_path, request, executor, bindings=bindings)
+    assert error.value.code == "BUDGET_OVERFLOW"
+    assert executor.calls == []  # overflow precedes every dispatch
+
+
+def test_commit_source_is_a_biconditional(tmp_path: Path) -> None:  # §5.2
+    """commit_source is the merge_commit observation exactly when that Step is
+    OBSERVED. Keying only on the observation left both other directions open:
+    a FAILED step carries an observation but must never be commit_source, and
+    an OBSERVED step must not seal with commit_source null."""
+
+    from conclave.github_factual import Merge
+
+    failed = {"complete": False, "status_class": "transport", "reasons": ("TRANSPORT_TIMEOUT",)}
+    _r, failed_report = _post_action(tmp_path / "f", pr_after={"projection": MERGED_PR},
+                                     merge_commit=failed)
+    failed_step = next(s for s in failed_report.steps if s.slot == "merge_commit")
+    assert failed_step.disposition == "FAILED" and failed_step.observation is not None
+    assert failed_report.merge.commit_source is None
+
+    _r2, ok_report = _post_action(tmp_path / "o", pr_after={"projection": MERGED_PR})
+    ok_step = next(s for s in ok_report.steps if s.slot == "merge_commit")
+    assert ok_step.disposition == "OBSERVED"
+    assert ok_report.merge.commit_source == ok_step.observation
+
+    def reseal(report: FactualReport, message: str, **merge_changes) -> None:
+        merge = Merge(**{**report.merge.model_dump(), **merge_changes})
+        with pytest.raises(PydanticValidationError) as error:
+            seal_record(FactualReport, {**_report_body(report), "merge": merge})
+        assert message in str(error.value)
+
+    # A FAILED merge_commit whose observation is promoted to commit_source.
+    reseal(failed_report, "iff that step is OBSERVED",
+           commit_source=failed_step.observation, parents_comparison="MATCH")
+    # An OBSERVED merge_commit sealing with commit_source dropped.
+    reseal(ok_report, "iff that step is OBSERVED",
+           commit_source=None, parents_comparison="UNKNOWN")
+    # §5.3: a null commit_source can only yield UNKNOWN parents.
+    reseal(failed_report, "parents_comparison is UNKNOWN",
+           commit_source=None, parents_comparison="MATCH")
+
+
+@pytest.mark.parametrize(
+    "merged_by",
+    [
+        {"type": "User"},                    # no id
+        {"id": HUMAN},                       # no type
+        {"id": "5150", "type": "User"},      # id is not an integer
+        "komistry-dev",                      # not an object at all
+    ],
+)
+def test_malformed_actor_projection_is_a_closed_error(tmp_path: Path, merged_by: Any) -> None:
+    """§6: a corrupted retained projection returns an error with a closed code,
+    not an uncaught KeyError or TypeError escaping the cycle."""
+
+    projection = {**MERGED_PR, "merged_by": merged_by}
+    with pytest.raises(FactualCollectionError) as error:
+        _post_action(tmp_path, pr_after={"projection": projection})
+    assert error.value.code == "RESULT_INVALID"
+
+
+@pytest.mark.parametrize("merge_sha", [12345, {"sha": MERGE}, [MERGE]])
+def test_malformed_merge_sha_is_a_closed_error(tmp_path: Path, merge_sha: Any) -> None:
+    """A non-string merge_commit_sha would otherwise surface as a raw pydantic
+    error from Merge rather than this profile's closed failure code."""
+
+    projection = {**MERGED_PR, "merge_commit_sha": merge_sha}
+    with pytest.raises(FactualCollectionError) as error:
+        _post_action(tmp_path, pr_after={"projection": projection})
+    assert error.value.code == "RESULT_INVALID"
+
+
+@pytest.mark.parametrize(
+    "parents",
+    [
+        "c" * 40,                                  # not a sequence of objects
+        [{"sha": BASE}, {"commit": HEAD}],         # an entry without "sha"
+        [{"sha": BASE}, HEAD],                     # an entry that is not an object
+    ],
+)
+def test_malformed_parents_projection_is_a_closed_error(tmp_path: Path, parents: Any) -> None:
+    with pytest.raises(FactualCollectionError) as error:
+        _post_action(tmp_path, pr_after={"projection": MERGED_PR},
+                     merge_commit={"projection": {"sha": MERGE, "parents": parents}})
+    assert error.value.code == "RESULT_INVALID"

@@ -273,7 +273,8 @@ class FactualReport(GitHubRecord):
             r.content_hash for r in self.observations
         ) or len({r.content_hash for r in self.observations}) != len(self.observations):
             raise ValueError("every observation belongs to exactly one step")
-        by_slot = {s.slot: s.observation for s in self.steps}
+        by_step = {s.slot: s for s in self.steps}
+        by_slot = {slot: step.observation for slot, step in by_step.items()}
         if self.pr_before != by_slot["pr_before"] or self.pr_after != by_slot["pr_after"]:
             raise ValueError("pr_before/pr_after must equal their slot references")
         for section in self.sections:
@@ -284,9 +285,23 @@ class FactualReport(GitHubRecord):
             )
             if section.sources != expected:
                 raise ValueError("section sources must be its slots' observations in slot order")
-        commit_source = by_slot["merge_commit"]
-        if self.merge.commit_source is not None and self.merge.commit_source != commit_source:
-            raise ValueError("commit_source must be the merge_commit slot observation")
+        # §5.2 is a biconditional: commit_source is the merge_commit observation
+        # reference exactly when that Step is OBSERVED, and null in every other
+        # case -- including a FAILED merge_commit, which still carries an
+        # observation. Keying on the observation alone enforced one direction
+        # only, so a FAILED step with a commit_source, or an OBSERVED step
+        # without one, both sealed (review 0002).
+        merge_step = by_step["merge_commit"]
+        expected_source = (
+            merge_step.observation if merge_step.disposition == "OBSERVED" else None
+        )
+        if self.merge.commit_source != expected_source:
+            raise ValueError(
+                "commit_source is the merge_commit observation iff that step is OBSERVED"
+            )
+        # §5.3: a null commit_source yields UNKNOWN parents, on every path.
+        if expected_source is None and self.merge.parents_comparison != "UNKNOWN":
+            raise ValueError("parents_comparison is UNKNOWN when commit_source is null")
         return self
 
 
@@ -415,13 +430,29 @@ def derive_merge(
             actor_comparison="UNKNOWN",
         )
     merge_sha = projection.get("merge_commit_sha")
+    if merge_sha is not None and not isinstance(merge_sha, str):
+        raise FactualCollectionError("RESULT_INVALID")
     merged_by = projection.get("merged_by")
-    actor_id = merged_by["id"] if isinstance(merged_by, Mapping) else None
-    actor_type = merged_by["type"] if isinstance(merged_by, Mapping) else None
+    # §5 projects merged_by as a nullable actor object. A Mapping missing "id"
+    # or "type" is a corrupted retained projection: §6 makes that an error with
+    # a closed code, not an uncaught KeyError (review 0002).
+    if merged_by is None:
+        actor_id = actor_type = None
+    elif isinstance(merged_by, Mapping) and "id" in merged_by and "type" in merged_by:
+        actor_id, actor_type = merged_by["id"], merged_by["type"]
+        if actor_id is not None and type(actor_id) is not int:
+            raise FactualCollectionError("RESULT_INVALID")
+    else:
+        raise FactualCollectionError("RESULT_INVALID")
 
     parents = "UNKNOWN"
     if request.purpose == "post_action" and commit_source is not None:
-        found = [entry["sha"] for entry in commit_source.projection.get("parents", [])]
+        entries = commit_source.projection.get("parents", ())
+        if not isinstance(entries, (list, tuple)) or any(
+            not isinstance(entry, Mapping) or "sha" not in entry for entry in entries
+        ):
+            raise FactualCollectionError("RESULT_INVALID")
+        found = [entry["sha"] for entry in entries]
         if len(found) == 2:
             parents = (
                 "MATCH"
@@ -635,9 +666,28 @@ def preflight(
     if set(bindings) != required:
         raise FactualCollectionError("PREFLIGHT_INVALID")
 
+    # §6: pre-admit the entire fixed plan before checking anything else. Each
+    # supplied binding is admitted at the ceiling it *declares*; every slot this
+    # purpose does not supply is still reserved at its plan allowance, because a
+    # conditional read is reserved even when it turns out inapplicable.
+    #
+    # No conforming binding set can overflow: Stage 21A pins every
+    # authorization's maximum_network_requests to its endpoint's page ceiling
+    # plus one, and the 16-slot plan is frozen at exactly 95. This is therefore
+    # defence against an injected binding Stage 21A would refuse to seal, and it
+    # runs ahead of the chain check so such a binding is reported as the cap
+    # enlargement it is rather than as a malformed chain. The previous form
+    # compared the plan against itself (95 > 95) and could not fire even for an
+    # injected binding (review 0002).
+    declared = sum(
+        binding.authorization.maximum_network_requests for binding in bindings.values()
+    )
+    reserved = sum(slot.maximum_pages + 1 for slot in SLOTS if slot.name not in bindings)
+    if declared + reserved > MAXIMUM_TRANSMISSIONS:
+        raise FactualCollectionError("BUDGET_OVERFLOW")
+
     authorization_hashes: set[str] = set()
     attempt_ids: set[str] = set()
-    budget = 0
     for name, binding in bindings.items():
         slot = SLOT_BY_NAME[name]
         path, query = expected_parameters(slot, request)
@@ -665,13 +715,6 @@ def preflight(
             raise FactualCollectionError("PREFLIGHT_INVALID")
         authorization_hashes.add(authorization.content_hash)
         attempt_ids.add(intent.attempt_id)
-        budget += authorization.maximum_network_requests
-    # §6: pre-admit the whole fixed plan. Conditional reads are reserved even
-    # when eventually inapplicable, so the reservation is the full 16-slot
-    # ceiling regardless of which bindings this purpose supplies.
-    reserved = sum(slot.maximum_pages + 1 for slot in SLOTS)
-    if budget > MAXIMUM_TRANSMISSIONS or reserved > MAXIMUM_TRANSMISSIONS:
-        raise FactualCollectionError("BUDGET_OVERFLOW")
 
 
 def _check_source_binding(

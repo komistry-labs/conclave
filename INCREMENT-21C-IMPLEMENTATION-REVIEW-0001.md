@@ -116,3 +116,25 @@ The seats were same-provider subagents, and the coordinator authored both the
 code and this record. This is not independent cross-provider assurance. The
 remediation has not itself been reviewed; a fresh review of the remediated bytes
 is the next gate, alongside four-platform CI on PR #27.
+
+## 6. Correction, 2026-09-26 — two claims above are false
+
+Appended by review 0002. The text above is preserved unchanged; these two
+entries in §3's "Fixed in code" table misdescribe what the round-1 remediation
+actually did.
+
+1. **"`preflight` reserves the whole plan, as §6 requires" is false.** The line
+   added was `reserved = sum(slot.maximum_pages + 1 for slot in SLOTS)` guarded
+   by `reserved > MAXIMUM_TRANSMISSIONS`. `SLOTS` is a frozen constant whose sum
+   is exactly `MAXIMUM_TRANSMISSIONS`, so the guard was `95 > 95` and could
+   never fire; the budget still counted only the supplied bindings. Seat 4's
+   round-1 finding was not fixed. Corrected in review 0002 §4.
+
+2. **"`FactualReport.closed_report` recomputes both" is half true.**
+   `Section.sources` was recomputed. `Merge.commit_source` was guarded by
+   `if self.merge.commit_source is not None and ...`, enforcing only one
+   direction of §5.2's biconditional. Corrected in review 0002 §4.
+
+§4's "26 of 26 killed" figure is not withdrawn, but it describes a battery the
+coordinator chose over the rules the round-1 survivors covered; it is not an
+adequacy result for the module, and the two rules above were not in it.
